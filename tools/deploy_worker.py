@@ -80,7 +80,17 @@ def call(method, path, token, body=None, content_type="application/json", raw=Fa
             errs = f"HTTP {e.code}"
         hint = ""
         if e.code in (401, 403):
-            hint = "\n  The token is missing the Workers Scripts:Edit permission, or is wrong."
+            if path == "/accounts":
+                # The "Edit Cloudflare Workers" template often omits account
+                # listing, which is a permissions quirk rather than a real
+                # blocker — the ID is visible in the dashboard.
+                hint = ("\n  This token can't list accounts, which is normal for the Workers"
+                        "\n  template. Pass the ID directly instead:"
+                        "\n    python3 tools/deploy_worker.py --account <ACCOUNT_ID>"
+                        "\n  Find it at dash.cloudflare.com -> Workers & Pages -> right sidebar"
+                        "\n  'Account ID', or in the dashboard URL after dash.cloudflare.com/")
+            else:
+                hint = "\n  The token is missing the Workers Scripts:Edit permission, or is wrong."
         sys.exit(f"Cloudflare API error on {method} {path}\n  {errs}{hint}")
     except urllib.error.URLError as e:
         sys.exit(f"Could not reach Cloudflare: {e.reason}")
