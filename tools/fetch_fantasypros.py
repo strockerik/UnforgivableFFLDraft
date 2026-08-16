@@ -41,6 +41,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import credentials  # noqa: E402
+
 BASE = "https://api.fantasypros.com/public/v2/json"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -49,18 +52,19 @@ VALID_POS = {"QB", "RB", "WR", "TE", "DST", "K"}
 
 
 def resolve_key(cli_key):
-    if cli_key:
-        return cli_key.strip()
-    env = os.environ.get("FANTASYPROS_API_KEY")
-    if env:
-        return env.strip()
-    path = os.path.join(ROOT, ".fpkey")
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            return f.read().strip()
+    key = credentials.resolve(
+        cli=cli_key,
+        env_vars=("FANTASYPROS_API_KEY",),
+        service="ffl-fantasypros",
+        dotfile=os.path.join(ROOT, ".fpkey"),
+        required=False,
+    )
+    if key:
+        return key
     sys.exit(
-        "No API key. Set FANTASYPROS_API_KEY, pass --key, or write the key to .fpkey\n"
-        "Request one at https://secure.fantasypros.com/api-keys/request/"
+        "No API key. Store one with:  python3 tools/credentials.py set ffl-fantasypros\n"
+        "  (or set FANTASYPROS_API_KEY, pass --key, or write it to .fpkey)\n"
+        "Request a key at https://secure.fantasypros.com/api-keys/request/"
     )
 
 

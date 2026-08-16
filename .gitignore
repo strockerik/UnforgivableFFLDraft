@@ -1,7 +1,23 @@
-# Secrets
+# Secrets.
+# Note that .gitignore only stops *new* files being added. It does nothing
+# about a file that was already committed once — that stays in history until
+# the history is rewritten. And `git add -f` overrides it.
 .fpkey
 .cfkey
 *.key
+*.pem
+
+# Personal scratch files. Ignored by name because these are exactly where a
+# key gets pasted "just for a second" and then forgotten.
+notes.md
+NOTES.md
+notes.txt
+secrets.md
+scratch.md
+TODO.local.md
+*.local.md
+.env
+.env.*
 
 # Licensed FantasyPros data — do NOT publish to a public repo.
 # Their exports and the API's free tier are for personal, non-production use;

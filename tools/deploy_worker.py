@@ -30,6 +30,9 @@ import urllib.parse
 import urllib.request
 import uuid
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import credentials  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://api.cloudflare.com/client/v4"
 WORKER_FILE = os.path.join(ROOT, "worker", "worker.js")
@@ -39,20 +42,21 @@ del mimetypes  # not needed; parts are typed explicitly below
 
 
 def resolve_token(cli):
-    for src in (cli, os.environ.get("CLOUDFLARE_API_TOKEN"), os.environ.get("CF_API_TOKEN")):
-        if src and src.strip():
-            return src.strip()
-    path = os.path.join(ROOT, ".cfkey")
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            tok = f.read().strip()
-            if tok:
-                return tok
+    tok = credentials.resolve(
+        cli=cli,
+        env_vars=("CLOUDFLARE_API_TOKEN", "CF_API_TOKEN"),
+        service="ffl-cloudflare",
+        dotfile=os.path.join(ROOT, ".cfkey"),
+        required=False,
+    )
+    if tok:
+        return tok
     sys.exit(
         "No Cloudflare API token.\n"
         "  Create one at https://dash.cloudflare.com/profile/api-tokens\n"
         "  (template 'Edit Cloudflare Workers', or Account > Workers Scripts > Edit)\n"
-        "  then:  export CLOUDFLARE_API_TOKEN=...   or write it to .cfkey"
+        "  then store it with:  python3 tools/credentials.py set ffl-cloudflare\n"
+        "  (or export CLOUDFLARE_API_TOKEN=... , or write it to .cfkey)"
     )
 
 
@@ -189,11 +193,14 @@ def main():
 
     if not args.skip_secrets:
         print("\nSecrets (input is hidden, never logged or written to disk):")
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or getpass.getpass("  ANTHROPIC_API_KEY: ")
+        api_key = credentials.resolve(
+            env_vars=("ANTHROPIC_API_KEY",), service="ffl-anthropic",
+            prompt="  ANTHROPIC_API_KEY: ", required=False) or ""
         if not api_key.strip():
             sys.exit("An Anthropic API key is required.")
-        passphrase = os.environ.get("APP_PASSPHRASE") or getpass.getpass(
-            "  APP_PASSPHRASE (make it long/random): ")
+        passphrase = credentials.resolve(
+            env_vars=("APP_PASSPHRASE",), service="ffl-passphrase",
+            prompt="  APP_PASSPHRASE (make it long/random): ", required=False) or ""
         if len(passphrase.strip()) < 12:
             sys.exit("Use a passphrase of at least 12 characters — this is the only real gate.")
         put_secret(token, account, args.name, "ANTHROPIC_API_KEY", api_key.strip())
