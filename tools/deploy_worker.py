@@ -24,6 +24,7 @@ import getpass
 import json
 import mimetypes
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -96,12 +97,33 @@ def call(method, path, token, body=None, content_type="application/json", raw=Fa
         sys.exit(f"Could not reach Cloudflare: {e.reason}")
 
 
+ACCOUNT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def validate_account(value):
+    """Fail fast on a placeholder or malformed ID. Cloudflare's own error for
+    this is 7003 'perhaps your object identifier is invalid?', which does not
+    make it obvious that the literal word YOUR_ACCOUNT_ID was sent."""
+    v = value.strip()
+    if not ACCOUNT_ID_RE.match(v):
+        looks_placeholder = ("your" in v.lower() or "<" in v or v.upper() == v and "_" in v)
+        sys.exit(
+            f"That doesn't look like a Cloudflare account ID: {v!r}\n"
+            + ("  It looks like the placeholder text rather than a real value.\n"
+               if looks_placeholder else "")
+            + "  An account ID is 32 lowercase hex characters, e.g. 9a7b1c2d3e4f5061728394a5b6c7d8e9\n"
+            "  Find it at dash.cloudflare.com -> Workers & Pages -> right sidebar 'Account ID',\n"
+            "  or in the dashboard URL right after dash.cloudflare.com/"
+        )
+    return v
+
+
 def resolve_account(token, cli):
     if cli:
-        return cli
+        return validate_account(cli)
     env = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
     if env:
-        return env
+        return validate_account(env)
     res = call("GET", "/accounts", token)
     accounts = res.get("result") or []
     if not accounts:
