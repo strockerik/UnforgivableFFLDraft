@@ -28,7 +28,11 @@ export const DEFAULT_SETTINGS = {
   model: 'claude-opus-5',
   effort: 'medium',
   authMode: 'direct',
-  proxyUrl: '',
+  // Pre-filled so a new browser only needs the passphrase typed in. The URL
+  // is not a secret — it's gated by APP_PASSPHRASE, and a request without the
+  // right one gets a 401 having cost nothing. Change it under Setup if you
+  // deploy your own.
+  proxyUrl: 'https://ffl-draft-proxy.strockerik.workers.dev',
 };
 
 // How a FLEX slot is historically consumed. Used to push replacement level
