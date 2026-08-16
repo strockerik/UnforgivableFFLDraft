@@ -1,5 +1,6 @@
 # Secrets
 .fpkey
+.cfkey
 *.key
 
 # Licensed FantasyPros data — do NOT publish to a public repo.
