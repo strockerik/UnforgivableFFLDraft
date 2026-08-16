@@ -379,9 +379,11 @@ test('suppresses DST and K until the final two rounds, then surfaces them', () =
 test('assigns starters to slots and reports what is still open', () => {
   const rb1 = pool.find((p) => p.pos === 'RB');
   const wr1 = pool.find((p) => p.pos === 'WR');
+  // Derive the slot rather than hardcoding it — the default moved once
+  // already when the real draft order arrived.
   const st = mkState([
-    { pickNo: 5, playerId: rb1.id, teamSlot: 5 },
-    { pickNo: 16, playerId: wr1.id, teamSlot: 5 },
+    { pickNo: 5, playerId: rb1.id, teamSlot: settings.slot },
+    { pickNo: 16, playerId: wr1.id, teamSlot: settings.slot },
   ]);
   const a = rosterAnalysis(st);
   eq(a.roster.length, 2);
