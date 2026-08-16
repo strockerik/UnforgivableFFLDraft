@@ -1,0 +1,24 @@
+# Secrets
+.fpkey
+*.key
+
+# Licensed FantasyPros data — do NOT publish to a public repo.
+# Their exports and the API's free tier are for personal, non-production use;
+# pushing them to a public Pages site is redistribution. The app loads these
+# at runtime via the file pickers, and localStorage keeps them between
+# sessions, so nothing is lost by leaving them out of git.
+Fantasy Ranking/
+data/players.json
+data/raw-response.json
+
+# The synthetic sample CSVs are ours and DO belong in the repo, so the app is
+# demoable on a fresh clone:
+!data/sample-rankings.csv
+!data/sample-adp.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

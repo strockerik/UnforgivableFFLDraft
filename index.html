@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy Football Draft Assistant</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏈</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>🏈 Draft Assistant</h1>
+  <div id="status-bar" class="status-bar"></div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+<div id="live-region" class="visually-hidden" aria-live="polite"></div>
+
+<main class="layout">
+  <section id="board" class="panel board" aria-label="Available players"></section>
+
+  <div class="sidecol">
+    <section id="recs" class="panel recs" aria-label="Recommendation"></section>
+    <section id="roster" class="panel roster" aria-label="Your roster"></section>
+  </div>
+</main>
+
+<details class="drawer">
+  <summary>Setup — data, league, API key</summary>
+  <div id="setup" class="setup"></div>
+</details>
+
+<details class="drawer">
+  <summary>Emergency cheat sheet</summary>
+  <div id="cheatsheet" class="cheatsheet"></div>
+</details>
+
+<footer class="foot">
+  <p>
+    Runs entirely in your browser. Your API key is stored in this browser's
+    <code>localStorage</code> under a <code>ffda:</code> prefix and is sent directly to
+    Anthropic — anyone with access to this browser can read it.
+  </p>
+</footer>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
