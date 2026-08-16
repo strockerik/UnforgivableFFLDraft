@@ -101,8 +101,30 @@ export class ClaudeError extends Error {
  * Ask Claude for a recommendation. Throws ClaudeError on any failure so the
  * caller can fall through to the deterministic pick.
  */
-export async function recommend({ apiKey, model, effort, evidence, signal }) {
-  if (!apiKey) throw new ClaudeError('No API key set.', 'no-key');
+export async function recommend({
+  authMode = 'direct', apiKey, proxyUrl, passphrase,
+  model, effort, evidence, signal,
+}) {
+  const viaProxy = authMode === 'proxy';
+
+  if (viaProxy) {
+    if (!proxyUrl) throw new ClaudeError('No Worker URL set.', 'no-proxy');
+    if (!passphrase) throw new ClaudeError('No passphrase set.', 'no-key');
+  } else if (!apiKey) {
+    throw new ClaudeError('No API key set.', 'no-key');
+  }
+
+  const url = viaProxy ? proxyUrl : API_URL;
+  // In proxy mode the key lives in the Worker; the browser never sees it, and
+  // the dangerous-direct-browser-access header is neither needed nor sent.
+  const headers = viaProxy
+    ? { 'content-type': 'application/json', 'x-app-passphrase': passphrase }
+    : {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      };
 
   const body = {
     model,
@@ -125,20 +147,13 @@ export async function recommend({ apiKey, model, effort, evidence, signal }) {
 
   let res;
   try {
-    res = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
   } catch (err) {
     if (err.name === 'AbortError') throw new ClaudeError('Request cancelled.', 'aborted');
-    throw new ClaudeError(`Network error: ${err.message}`, 'network');
+    throw new ClaudeError(
+      viaProxy ? `Could not reach the Worker: ${err.message}` : `Network error: ${err.message}`,
+      'network'
+    );
   }
 
   if (!res.ok) {
@@ -147,7 +162,11 @@ export async function recommend({ apiKey, model, effort, evidence, signal }) {
       const errBody = await res.json();
       if (errBody?.error?.message) detail = errBody.error.message;
     } catch { /* non-JSON error body */ }
-    const kind = res.status === 401 ? 'auth' : res.status === 429 ? 'rate-limit' : 'http';
+    // A 401 from the Worker means the passphrase is wrong, not the API key —
+    // saying "API key rejected" would send you debugging the wrong secret.
+    const kind = res.status === 401 ? (viaProxy ? 'bad-passphrase' : 'auth')
+      : res.status === 403 ? 'forbidden'
+      : res.status === 429 ? 'rate-limit' : 'http';
     throw new ClaudeError(detail, kind);
   }
 

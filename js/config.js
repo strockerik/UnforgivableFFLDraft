@@ -7,8 +7,13 @@ export const KEYS = {
   settings: NS + 'settings',
   draft: NS + 'draft',
   apiKey: NS + 'apikey',
+  passphrase: NS + 'passphrase',
   pool: NS + 'pool',
 };
+
+// 'direct' — browser calls Anthropic with your key (fine locally).
+// 'proxy'  — browser calls your Cloudflare Worker, which holds the key.
+export const AUTH_MODES = ['direct', 'proxy'];
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DST', 'K'];
 export const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
@@ -22,6 +27,8 @@ export const DEFAULT_SETTINGS = {
   bench: 6,
   model: 'claude-opus-5',
   effort: 'medium',
+  authMode: 'direct',
+  proxyUrl: '',
 };
 
 // How a FLEX slot is historically consumed. Used to push replacement level

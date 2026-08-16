@@ -2,7 +2,10 @@
 
 import { el, mount } from './dom.js';
 import { MODELS, EFFORTS, POSITIONS } from '../config.js';
-import { state, setSettings, setPool, refreshPool, getApiKey, setApiKey, resetDraft, hardReset } from '../state.js';
+import {
+  state, setSettings, setPool, refreshPool, getApiKey, setApiKey,
+  getPassphrase, setPassphrase, resetDraft, hardReset,
+} from '../state.js';
 import { readFileText } from '../csv.js';
 import { parseRankings, parseAdp, mergeAdp, finalizePool } from '../players.js';
 import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
@@ -223,12 +226,38 @@ function render() {
 
     el('section', { class: 'setup-group' },
       el('h3', {}, '3. Claude'),
-      field('API key', el('input', {
-        type: 'password',
-        placeholder: 'sk-ant-…',
-        value: getApiKey(),
-        onchange: (e) => setApiKey(e.target.value.trim()),
-      }), 'Stored in this browser only, under a ffda: prefix. Anyone with access to this browser can read it.'),
+      field('Connection', el('select', {
+        onchange: (e) => setSettings({ authMode: e.target.value }),
+      }, [
+        el('option', { value: 'direct', selected: s.authMode === 'direct' },
+          'Direct — key in this browser'),
+        el('option', { value: 'proxy', selected: s.authMode === 'proxy' },
+          'Via Cloudflare Worker — key stays server-side'),
+      ]), s.authMode === 'proxy'
+        ? 'The Worker holds your Anthropic key. This browser only stores the passphrase.'
+        : 'Simplest for local use. The key is readable by anyone with access to this browser.'),
+
+      s.authMode === 'proxy'
+        ? el('div', {},
+            field('Worker URL', el('input', {
+              type: 'url',
+              placeholder: 'https://ffl-draft-proxy.<subdomain>.workers.dev',
+              value: s.proxyUrl,
+              onchange: (e) => setSettings({ proxyUrl: e.target.value.trim() }),
+            }), 'From the Cloudflare dashboard, after you deploy worker/worker.js'),
+            field('Passphrase', el('input', {
+              type: 'password',
+              placeholder: 'the APP_PASSPHRASE secret',
+              value: getPassphrase(),
+              onchange: (e) => setPassphrase(e.target.value.trim()),
+            }), 'Must match the APP_PASSPHRASE secret set on the Worker.'),
+          )
+        : field('API key', el('input', {
+            type: 'password',
+            placeholder: 'sk-ant-…',
+            value: getApiKey(),
+            onchange: (e) => setApiKey(e.target.value.trim()),
+          }), 'Stored in this browser only, under a ffda: prefix.'),
       el('div', { class: 'row' },
         field('Model', el('select', {
           onchange: (e) => setSettings({ model: e.target.value }),

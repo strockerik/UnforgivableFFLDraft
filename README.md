@@ -121,13 +121,22 @@ you can sanity-check them before the draft starts.
 
 ## Claude
 
-Paste an API key under **Setup → Claude**. It's stored in this browser's
-`localStorage` under a `ffda:` prefix and sent directly to Anthropic with the
-`anthropic-dangerous-direct-browser-access` header.
+Two connection modes, under **Setup → Claude**.
 
-**Anyone with access to this browser can read that key.** That's an acceptable
-trade for a private single-user tool. If this ever gets shared or hosted
-somewhere others use, move the call behind a proxy you control.
+**Direct** — paste an API key. It's stored in this browser's `localStorage`
+under a `ffda:` prefix and sent straight to Anthropic with the
+`anthropic-dangerous-direct-browser-access` header. Simplest for local use, but
+anyone with access to that browser can read the key.
+
+**Via Cloudflare Worker** — the key lives in the Worker; the browser stores only
+a passphrase. Deployable entirely from Cloudflare's web dashboard, no CLI or
+Node required. See [worker/README.md](worker/README.md). Free tier covers a
+draft several thousand times over.
+
+Use the Worker if you draft from the public Pages URL or from more than one
+browser. Note that a bare proxy is *worse* than a local key — the URL is
+visible in devtools and callable from curl — which is why the Worker checks a
+passphrase, restricts origins and models, and caps `max_tokens`.
 
 Model and effort are configurable. Lower effort is faster on the clock; Opus 5
 at `medium` is a good default. Cost per pick is displayed after each call —
@@ -166,7 +175,7 @@ entire draft with no API key at all.
 /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc -m tests/run.mjs
 ```
 
-62 tests over the pure logic — CSV quirks, name/suffix parsing, ADP merging,
+69 tests over the pure logic — CSV quirks, name/suffix parsing, ADP merging,
 replacement levels, snake math, tier cliffs, evidence-packet bounds and
 allowlist integrity, response validation, your real FantasyPros exports, and a
 full simulated 150-pick draft.
@@ -198,6 +207,8 @@ js/
   claude.js           API client, schema, validation
   main.js             bootstrap
   ui/                 board, roster, recommendations, setup, cheat sheet
+worker/
+  worker.js            Cloudflare Worker proxy (paste into the dashboard)
 tools/
   fetch_fantasypros.py   API → data/players.json
 tests/run.mjs

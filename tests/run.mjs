@@ -10,7 +10,7 @@ import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAd
 import { replacementLevels, computeValues } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
-import { validateRecommendation } from '../js/claude.js';
+import { validateRecommendation, recommend } from '../js/claude.js';
 import { DEFAULT_SETTINGS } from '../js/config.js';
 
 // --- tiny harness -----------------------------------------------------------
@@ -546,6 +546,82 @@ test('rejects structurally malformed responses', () => {
   eq(validateRecommendation({ ...good, alternatives: 'nope' }, allow).ok, false);
   eq(validateRecommendation({ ...good, positional_advice: 42 }, allow).ok, false);
 });
+
+// ============================================================================
+group('claude.js — direct vs proxy transport');
+
+// Capture what recommend() would put on the wire, without a network.
+function captureRequest(opts) {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = (url, init) => {
+    captured = { url, init };
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: JSON.stringify(good) }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+        model: opts.model,
+      }),
+    });
+  };
+  const done = recommend({ evidence, ...opts });
+  return done.then((r) => { globalThis.fetch = realFetch; return { captured, result: r }; },
+                   (e) => { globalThis.fetch = realFetch; throw e; });
+}
+
+const directOpts = { authMode: 'direct', apiKey: 'sk-ant-test', model: 'claude-opus-5', effort: 'low' };
+const proxyOpts = {
+  authMode: 'proxy', proxyUrl: 'https://example.workers.dev', passphrase: 'hunter2',
+  model: 'claude-opus-5', effort: 'low',
+};
+
+await captureRequest(directOpts).then(({ captured }) => {
+  test('direct mode sends the key and the browser-access header', () => {
+    eq(captured.url, 'https://api.anthropic.com/v1/messages');
+    eq(captured.init.headers['x-api-key'], 'sk-ant-test');
+    eq(captured.init.headers['anthropic-dangerous-direct-browser-access'], 'true');
+  });
+});
+
+await captureRequest(proxyOpts).then(({ captured }) => {
+  test('proxy mode targets the Worker, not Anthropic', () => {
+    eq(captured.url, 'https://example.workers.dev');
+  });
+
+  test('proxy mode never puts an API key or the dangerous header on the wire', () => {
+    const h = captured.init.headers;
+    eq('x-api-key' in h, false, 'x-api-key leaked to the proxy: ');
+    eq('anthropic-dangerous-direct-browser-access' in h, false, 'dangerous header leaked: ');
+    eq(h['x-app-passphrase'], 'hunter2');
+    eq(JSON.stringify(captured.init).includes('sk-ant'), false, 'a key string leaked: ');
+  });
+
+  test('proxy mode still sends the full request body the Worker relays', () => {
+    const body = JSON.parse(captured.init.body);
+    eq(body.model, 'claude-opus-5');
+    eq(body.output_config.format.type, 'json_schema');
+    ok(Array.isArray(body.system) && body.system.length === 2, 'system prompt missing');
+    eq(body.system[1].cache_control.type, 'ephemeral');
+  });
+});
+
+async function expectKind(opts, kind, label) {
+  try {
+    await recommend({ evidence, ...opts });
+    test(label, () => { throw new Error('expected a ClaudeError'); });
+  } catch (e) {
+    test(label, () => eq(e.kind, kind));
+  }
+}
+await expectKind({ authMode: 'proxy', passphrase: 'x', model: 'claude-opus-5' },
+  'no-proxy', 'proxy mode without a Worker URL fails before any request');
+await expectKind({ authMode: 'proxy', proxyUrl: 'https://x.dev', model: 'claude-opus-5' },
+  'no-key', 'proxy mode without a passphrase fails before any request');
+await expectKind({ authMode: 'direct', model: 'claude-opus-5' },
+  'no-key', 'direct mode without an API key fails before any request');
 
 // ============================================================================
 out(`\n${passed} passed, ${failed} failed`);

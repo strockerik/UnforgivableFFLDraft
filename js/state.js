@@ -85,6 +85,16 @@ export function setApiKey(key) {
   notify();
 }
 
+export function getPassphrase() {
+  return localStorage.getItem(KEYS.passphrase) || '';
+}
+
+export function setPassphrase(v) {
+  if (v) localStorage.setItem(KEYS.passphrase, v);
+  else localStorage.removeItem(KEYS.passphrase);
+  notify();
+}
+
 // --- undo -------------------------------------------------------------------
 
 function snapshot() {

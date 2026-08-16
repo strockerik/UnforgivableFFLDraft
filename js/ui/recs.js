@@ -2,7 +2,7 @@
 // Claude's answer replaces it only after passing schema + allowlist checks.
 
 import { el, mount } from './dom.js';
-import { state, availablePlayers, getApiKey, draftPlayer } from '../state.js';
+import { state, availablePlayers, getApiKey, getPassphrase, draftPlayer } from '../state.js';
 import { evaluate, deterministicPick, buildEvidence } from '../engine.js';
 import { recommend, validateRecommendation, estimateCost, ClaudeError } from '../claude.js';
 
@@ -124,14 +124,21 @@ function render() {
 
 async function askClaude(evaluation, available) {
   if (busy) return;
+  const { authMode, proxyUrl } = state.settings;
+  const viaProxy = authMode === 'proxy';
   const apiKey = getApiKey();
+  const passphrase = getPassphrase();
   const evidence = buildEvidence(state, available, evaluation);
 
-  if (!apiKey) {
+  const missing = viaProxy
+    ? (!proxyUrl ? 'No Worker URL set' : !passphrase ? 'No passphrase set' : null)
+    : (!apiKey ? 'No API key set' : null);
+
+  if (missing) {
     result = {
       rec: deterministicPick(evaluation),
       source: 'deterministic',
-      note: 'No API key set — showing the deterministic pick. Add a key in Setup.',
+      note: `${missing} — showing the deterministic pick. Fix it under Setup → Claude.`,
     };
     render();
     return;
@@ -143,7 +150,10 @@ async function askClaude(evaluation, available) {
   inflight = new AbortController();
   try {
     const { rec, usage, model } = await recommend({
+      authMode,
       apiKey,
+      proxyUrl,
+      passphrase,
       model: state.settings.model,
       effort: state.settings.effort,
       evidence,
@@ -164,8 +174,11 @@ async function askClaude(evaluation, available) {
     }
   } catch (err) {
     const msg = err instanceof ClaudeError
-      ? { 'no-key': 'No API key set.', auth: 'API key rejected.', 'rate-limit': 'Rate limited.',
-          network: 'Network unreachable.', refusal: 'Model declined.', truncated: 'Response truncated.',
+      ? { 'no-key': 'No credential set.', 'no-proxy': 'No Worker URL set.',
+          auth: 'API key rejected.', 'bad-passphrase': 'Worker rejected the passphrase.',
+          forbidden: 'Worker refused this origin or model.',
+          'rate-limit': 'Rate limited.', network: 'Network unreachable.',
+          refusal: 'Model declined.', truncated: 'Response truncated.',
         }[err.kind] || err.message
       : err.message;
     result = {
