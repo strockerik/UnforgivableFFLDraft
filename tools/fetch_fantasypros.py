@@ -99,6 +99,19 @@ def get(path, key, soft=False, **params):
     sys.exit(f"{detail}\n  url: {url}")
 
 
+def tier_note(payload, label, count_seen):
+    """The free tier silently returns 10 records with count= the real total.
+    Left unflagged you get a 10-player draft board and no idea why."""
+    if not isinstance(payload, dict):
+        return None
+    if not payload.get("public_api_limited"):
+        return None
+    total = payload.get("count")
+    return (f"{label}: API returned {count_seen} of {total} records — your key is on the "
+            f"'{payload.get('tier')}' tier, which caps every response at "
+            f"{payload.get('limit')}. Upgrade at fantasypros.com/api-data/ for the full set.")
+
+
 def find_player_list(payload):
     """The response wrapper has changed shape before; find the player array
     rather than hardcoding one key."""
@@ -176,6 +189,9 @@ def normalize(rec):
 
     return {
         "id": slug(name, team or pos, pos),
+        # FantasyPros' own player_id. News and injuries carry only this, never
+        # a name, so it is the join key for both.
+        "fpId": field(rec, "player_id", "fpid"),
         "name": str(name).strip(),
         "team": team,
         "pos": pos,
@@ -188,7 +204,10 @@ def normalize(rec):
         "ecrBest": as_num(field(rec, "rank_min", "best")),
         "ecrWorst": as_num(field(rec, "rank_max", "worst")),
         "ecrStdDev": as_num(field(rec, "rank_std", "std_dev", "std")),
-        "adp": as_num(field(rec, "player_owned_avg", "adp", "avg_adp")),
+        # NOT player_owned_avg — that is roster-ownership percentage (99.5 for
+        # a stud), which silently produced nonsense ADP. Real ADP comes from
+        # the /players endpoint, merged separately below.
+        "adp": as_num(field(rec, "adp", "avg_adp")),
         "ecrVsAdp": None,
         "projPoints": as_num(field(rec, "fpts", "proj_pts", "projected_points", "points")),
     }
@@ -210,23 +229,32 @@ def merge_injuries(players, payload):
     """Attach injury status. This is the one thing a downloaded CSV can never
     tell you, and it moves draft boards on the morning of the draft."""
     idx = index_by_name(players)
+    by_id = {p["fpId"]: p for p in players if p.get("fpId") is not None}
     matched = 0
     for rec in find_player_list(payload):
         name = field(rec, "player_name", "name", "player")
         if not name:
             continue
-        pos, _ = split_pos(field(rec, "player_position_id", "position_id", "position"))
-        target = lookup(idx, name, pos)
+        pos, _ = split_pos(field(rec, "position_id", "player_position_id", "position"))
+        target = by_id.get(field(rec, "player_id")) or lookup(idx, name, pos)
         if not target:
             continue
-        status = field(rec, "player_injury_status", "injury_status", "status", "designation")
-        detail = field(rec, "player_injury_details", "injury_details", "details",
-                       "description", "injury")
+        status = field(rec, "status", "player_injury_status", "injury_status")
+        # injury_type is often empty; comment carries the real substance.
+        bits = [field(rec, "injury_type"), field(rec, "comment")]
+        prob = field(rec, "probability_of_playing")
+        if prob is not None:
+            bits.append(f"{prob}% likely to play")
+        practices = [field(rec, f"practice_{i}") for i in (1, 2, 3)]
+        practices = [x for x in practices if x]
+        if practices:
+            bits.append("practice: " + "/".join(str(x) for x in practices))
+        detail = " — ".join(str(b).strip() for b in bits if b)
         if not status and not detail:
             continue
         target["injury"] = {
             "status": str(status).strip() if status else None,
-            "detail": (str(detail).strip()[:160] if detail else None),
+            "detail": detail[:200] or None,
         }
         matched += 1
     return matched
@@ -239,17 +267,15 @@ def merge_news(players, payload, per_player=2, max_chars=200):
     unbounded news dump would blow the packet's size discipline for signal
     that is mostly noise by the third item.
     """
-    idx = index_by_name(players)
+    by_id = {p["fpId"]: p for p in players if p.get("fpId") is not None}
     matched = 0
     for rec in find_player_list(payload):
-        name = field(rec, "player_name", "name", "player")
-        if not name:
-            continue
-        pos, _ = split_pos(field(rec, "player_position_id", "position_id", "position"))
-        target = lookup(idx, name, pos)
+        # The news feed carries player_id only — no name field exists on it,
+        # so name matching silently attached nothing.
+        target = by_id.get(field(rec, "player_id", "fpid"))
         if not target:
             continue
-        text = field(rec, "headline", "title", "note", "text", "body", "analysis")
+        text = field(rec, "title", "headline", "desc", "note", "text", "body")
         if not text:
             continue
         entry = {
@@ -263,7 +289,35 @@ def merge_news(players, payload, per_player=2, max_chars=200):
     return matched
 
 
-def merge_projections(players, proj_payload):
+POINTS_KEY = {"HALF": "points_half", "PPR": "points_ppr", "STD": "points"}
+
+
+def merge_adp(players, payload, scoring):
+    """ADP lives on /nfl/players as rank_adp (standard) / rank_adp_ppr."""
+    idx = {p["fpId"]: p for p in players if p.get("fpId") is not None}
+    key = "rank_adp_ppr" if scoring in ("PPR", "HALF") else "rank_adp"
+    matched = 0
+    for rec in find_player_list(payload):
+        target = idx.get(field(rec, "player_id", "fpid"))
+        if not target:
+            continue
+        adp = as_num(field(rec, key, "rank_adp"))
+        # 0 means "unranked" in this feed, not "first overall".
+        if adp:
+            target["adp"] = adp
+            matched += 1
+    return matched
+
+
+def merge_projections(players, proj_payload, scoring="HALF"):
+    """Attach projected points, which is what turns the app's rank-based
+    surrogate into true VORP.
+
+    Matched on FantasyPros' player id first: the projections feed spells names
+    differently from the rankings feed (suffixes, punctuation), so name
+    matching drops real players. Name is the fallback for records with no id.
+    """
+    by_id = {p["fpId"]: p for p in players if p.get("fpId") is not None}
     by_key = {}
     for p in players:
         by_key.setdefault((norm_key(p["name"]), p["pos"]), p)
@@ -271,21 +325,24 @@ def merge_projections(players, proj_payload):
     matched, unmatched = 0, []
     for rec in find_player_list(proj_payload):
         name = field(rec, "player_name", "name", "player")
-        if not name:
-            continue
-        pts = as_num(field(rec, "fpts", "proj_pts", "projected_points", "points"))
+        stats = rec.get("stats") if isinstance(rec.get("stats"), dict) else {}
+        # Take the total for THIS league's scoring. Bare `points` is standard
+        # scoring, so using it in a Half-PPR league undervalues every receiver.
+        pts = as_num(field(stats, POINTS_KEY.get(scoring, "points"), "points"))
         if pts is None:
-            stats = rec.get("stats")
-            if isinstance(stats, dict):
-                pts = as_num(field(stats, "fpts", "points"))
+            pts = as_num(field(rec, "fpts", "proj_pts", "projected_points", "points"))
         if pts is None:
             continue
-        pos, _ = split_pos(field(rec, "player_position_id", "position_id", "position"))
-        target = by_key.get((norm_key(name), pos))
+
+        pos, _ = split_pos(field(rec, "position_id", "player_position_id", "position"))
+        target = by_id.get(field(rec, "fpid", "player_id"))
+        if target is None and name:
+            target = by_key.get((norm_key(name), pos))
+
         if target:
             target["projPoints"] = pts
             matched += 1
-        else:
+        elif name:
             unmatched.append(name)
     return matched, unmatched
 
@@ -326,6 +383,13 @@ def main():
             json.dump(payload, f, indent=2)
         sys.exit(f"No player list found in the response. Top-level keys: {keys}\n"
                  f"Wrote the raw response to {dump} — the response shape may have changed.")
+
+    cap = tier_note(payload, "Rankings", len(raw))
+    if cap:
+        print("\n  " + cap)
+        print("  A 10-player board is not usable for a draft. Aborting rather than")
+        print("  writing a file that looks fine until you open it.\n")
+        sys.exit(1)
 
     players = [p for p in (normalize(r) for r in raw) if p]
     if not players:
@@ -377,11 +441,23 @@ def main():
             notes.append(f"News unavailable — {e}")
         print(f"  {notes[-1]}")
 
+    print("Fetching ADP…")
+    try:
+        adp_payload = get("/nfl/players", key, soft=True, season=args.season)
+        n = merge_adp(players, adp_payload, args.scoring)
+        notes.append(f"ADP attached for {n} players.")
+        t = tier_note(adp_payload, "ADP", len(find_player_list(adp_payload)))
+        if t:
+            notes.append(t)
+    except ApiError as e:
+        notes.append(f"ADP unavailable — {e}")
+    print(f"  {notes[-1]}")
+
     if args.projections:
         print("Fetching projections…")
         proj = get(f"/nfl/{args.season}/projections", key,
                    position="ALL", scoring=args.scoring, week=args.week)
-        matched, unmatched = merge_projections(players, proj)
+        matched, unmatched = merge_projections(players, proj, args.scoring)
         notes.append(f"Projections merged for {matched} of {len(players)} players.")
         if unmatched:
             notes.append(f"{len(unmatched)} projection rows did not match a ranked player "
