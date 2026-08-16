@@ -49,8 +49,18 @@ function playerRow(p, onDraft) {
         adpDelta != null ? ` · ADP ${adpDelta}` : '',
       ),
     ),
-    el('div', { class: 'player-value', title: 'Value over replacement' },
+    el('div', { class: 'player-value', title: p.valueProj != null
+        ? `Projections: ${Math.round(p.valueProj)} · Rank model: ${Math.round(p.valueModel)}`
+        : 'Rank-based value over replacement' },
       String(Math.round(p.value ?? 0)),
+      p.valueGap != null && Math.abs(p.valueGap) >= 15
+        ? el('span', {
+            class: 'value-gap ' + (p.valueGap > 0 ? 'gap-up' : 'gap-down'),
+            title: p.valueGap > 0
+              ? 'Projections like him more than his consensus rank does'
+              : 'Consensus rank likes him more than the projections do',
+          }, (p.valueGap > 0 ? '▲' : '▼') + Math.abs(p.valueGap))
+        : null,
     ),
   );
 }

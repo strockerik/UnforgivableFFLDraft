@@ -139,14 +139,30 @@ function restoreFocus(snap) {
   }
 }
 
-/** Reorder the draft board, keeping `slot` pointed at your own team. */
+/**
+ * Pad or trim the draft order to the team count, so changing "Teams" from 10
+ * to 12 gives you two more rows to name instead of silently hiding slots.
+ */
+function normalizedOrder(s) {
+  const out = [...(s.draftOrder || [])].slice(0, s.teams);
+  while (out.length < s.teams) out.push(`Team ${out.length + 1}`);
+  return out;
+}
+
+/** Reorder the board. Slot follows by index, not by name — duplicate names
+ *  are perfectly possible on draft day and would misroute a name lookup. */
 function moveTeam(index, dir) {
   const s = state.settings;
-  const next = [...s.draftOrder];
+  const next = normalizedOrder(s);
   const j = index + dir;
   if (j < 0 || j >= next.length) return;
   [next[index], next[j]] = [next[j], next[index]];
-  setSettings({ draftOrder: next, slot: next.indexOf(s.myTeamName) + 1 || s.slot });
+
+  let slot = s.slot;
+  if (s.slot === index + 1) slot = j + 1;
+  else if (s.slot === j + 1) slot = index + 1;
+
+  setSettings({ draftOrder: next, slot, myTeamName: next[slot - 1] || s.myTeamName });
 }
 
 function render() {
@@ -155,6 +171,7 @@ function render() {
   const s = state.settings;
   const levels = replacementLevels(s);
   const picks = myPicks(s);
+  const order = normalizedOrder(s);
 
   const rosterFields = Object.keys(s.roster).map((pos) =>
     field(pos, numberInput(s.roster[pos], 0, 5, (v) => setSettings({ roster: { ...s.roster, [pos]: v } })))
@@ -235,13 +252,17 @@ function render() {
     ),
 
     el('section', { class: 'setup-group' },
-      el('h3', {}, '3. Draft order'),
+      el('h3', {}, '3. Draft order & team names'),
       el('p', { class: 'field-hint' },
-        'Set this on draft day once the order is drawn. Your slot is derived from ',
-        'where your team lands, so you never set it twice. Use ↑↓ to reorder.'),
+        'Type over any name to rename a team, and use ↑↓ to put them in the ',
+        'order drawn on draft day. Click "set" on your own team — your slot ',
+        'follows it, so you never enter it twice.'),
       el('ol', { class: 'order-list' },
-        (s.draftOrder || []).slice(0, s.teams).map((name, i) => el('li', {
-          class: 'order-row' + (name === s.myTeamName ? ' order-mine' : ''),
+        order.map((name, i) => el('li', {
+          // Identity is the slot index, not the name. Two teams can end up
+          // sharing a name on draft day (a default left in place, two "TBD"
+          // rows) and name matching would silently move your slot.
+          class: 'order-row' + (i + 1 === s.slot ? ' order-mine' : ''),
         },
           el('span', { class: 'order-slot' }, String(i + 1)),
           el('input', {
@@ -249,14 +270,14 @@ function render() {
             type: 'text',
             name: `team-${i}`,
             value: name,
+            placeholder: `Team ${i + 1}`,
             onchange: (e) => {
-              const next = [...s.draftOrder];
-              const wasMine = next[i] === s.myTeamName;
+              const next = [...order];
               next[i] = e.target.value.trim() || `Team ${i + 1}`;
               setSettings({
                 draftOrder: next,
-                myTeamName: wasMine ? next[i] : s.myTeamName,
-                slot: next.indexOf(wasMine ? next[i] : s.myTeamName) + 1 || s.slot,
+                // Only your own row renames your team.
+                myTeamName: i + 1 === s.slot ? next[i] : s.myTeamName,
               });
             },
           }),
@@ -265,18 +286,23 @@ function render() {
             onclick: () => moveTeam(i, -1),
           }, '↑'),
           el('button', {
-            class: 'btn small', title: 'Move down', disabled: i === s.teams - 1,
+            class: 'btn small', title: 'Move down', disabled: i === order.length - 1,
             onclick: () => moveTeam(i, 1),
           }, '↓'),
           el('button', {
-            class: 'btn small' + (name === s.myTeamName ? ' primary' : ''),
-            title: 'Mark as your team',
-            onclick: () => setSettings({ myTeamName: name, slot: i + 1 }),
-          }, name === s.myTeamName ? 'you' : 'set'),
+            class: 'btn small' + (i + 1 === s.slot ? ' primary' : ''),
+            title: 'This is my team',
+            onclick: () => setSettings({ draftOrder: order, myTeamName: name, slot: i + 1 }),
+          }, i + 1 === s.slot ? 'you' : 'set'),
         ))),
       el('p', { class: 'computed' },
         el('strong', {}, 'You pick from slot '), String(s.slot),
-        ` (${s.myTeamName}) — picks ${myPicks(s).slice(0, 5).join(', ')}…`),
+        ` (${order[s.slot - 1] || '—'}) — picks ${myPicks(s).slice(0, 5).join(', ')}…`),
+      state.picks.length
+        ? el('p', { class: 'warn-inline' },
+            `${state.picks.length} pick(s) already recorded. Reordering now reassigns them ` +
+            'to whichever team ends up in each slot — set the order before you start.')
+        : null,
     ),
 
     el('section', { class: 'setup-group' },

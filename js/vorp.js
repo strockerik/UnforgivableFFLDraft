@@ -112,9 +112,9 @@ export function computeValues(pool, settings) {
   const rules = settings.scoringRules;
   const usingProjections = pool.some((p) => p.projPoints != null);
 
+  // Replacement-level projected points, when projections are loaded.
+  let replacementPoints = null;
   if (usingProjections) {
-    // Real VORP: replacement points = the projection of the player sitting at
-    // the replacement index within his own position.
     const byPos = {};
     for (const p of pool) {
       if (p.projPoints == null) continue;
@@ -122,30 +122,55 @@ export function computeValues(pool, settings) {
     }
     for (const pos of Object.keys(byPos)) byPos[pos].sort((a, b) => b.projPoints - a.projPoints);
 
-    const replacementPoints = {};
+    replacementPoints = {};
     for (const pos of POSITIONS) {
       const list = byPos[pos] || [];
       const idx = Math.min(levels[pos], list.length) - 1;
       replacementPoints[pos] = idx >= 0 && list[idx] ? list[idx].projPoints : 0;
     }
-
-    for (const p of pool) {
-      p.value = p.projPoints == null
-        ? surrogatePoints(p.pos, p.posRank, rules) - surrogatePoints(p.pos, levels[p.pos], rules)
-        : p.projPoints - (replacementPoints[p.pos] ?? 0);
-      p.vorp = p.value;
-    }
-    return { mode: 'projections', levels, replacementPoints };
   }
 
+  // Both numbers are kept on every player, because they answer different
+  // questions and their disagreement is the interesting part:
+  //
+  //   valueModel — where the EXPERT CONSENSUS puts him, converted to points
+  //                by the rank-decay curve. Reflects the market's opinion.
+  //   valueProj  — what the PROJECTIONS say he'll actually score, minus
+  //                replacement. Reflects a statistical forecast.
+  //
+  // A large gap means the market and the forecast disagree about a player,
+  // which is exactly where value (or a trap) tends to sit.
   for (const p of pool) {
-    p.value = surrogatePoints(p.pos, p.posRank, rules) - surrogatePoints(p.pos, levels[p.pos], rules);
+    p.valueModel = surrogatePoints(p.pos, p.posRank, rules)
+      - surrogatePoints(p.pos, levels[p.pos], rules);
+    p.valueProj = (replacementPoints && p.projPoints != null)
+      ? p.projPoints - (replacementPoints[p.pos] ?? 0)
+      : null;
+    p.valueGap = p.valueProj != null ? Math.round(p.valueProj - p.valueModel) : null;
+
+    // Projections win for ranking when present — a forecast beats a curve
+    // fitted to rank — but the model number stays visible either way.
+    p.value = p.valueProj ?? p.valueModel;
     p.vorp = p.value;
   }
-  return { mode: 'surrogate', levels, replacementPoints: null };
+
+  return {
+    mode: usingProjections ? 'projections' : 'surrogate',
+    levels,
+    replacementPoints,
+    hasBoth: usingProjections,
+  };
 }
 
 export const VALUE_MODE_LABEL = {
-  projections: 'VORP (from projected points)',
+  projections: 'VORP from projected points, shown alongside the rank-based model',
   surrogate: 'Rank-based value — no projections loaded',
 };
+
+/** Players where the forecast and the market disagree most, either way. */
+export function biggestDisagreements(pool, n = 8) {
+  return pool
+    .filter((p) => p.valueGap != null)
+    .sort((a, b) => Math.abs(b.valueGap) - Math.abs(a.valueGap))
+    .slice(0, n);
+}

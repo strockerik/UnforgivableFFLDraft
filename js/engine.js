@@ -246,6 +246,14 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       adp: p.adp,
       ecrVsAdp: p.ecrVsAdp,
     };
+    // When projections are loaded, send both valuations plus their gap. The
+    // gap is where a statistical forecast and the expert market disagree, and
+    // saying so lets the model reason about it instead of guessing.
+    if (p.valueProj != null) {
+      b.valueFromProjections = Math.round(p.valueProj);
+      b.valueFromConsensusRank = Math.round(p.valueModel);
+      b.projectionVsConsensusGap = p.valueGap;
+    }
     // Injury and news only ride along when present, so a pool without them
     // costs nothing in the packet.
     if (p.injury && (p.injury.status || p.injury.detail)) {

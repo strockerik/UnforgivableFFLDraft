@@ -275,3 +275,8 @@ body {
   padding: 0.25rem 0.45rem; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 5px; font-size: 0.85rem; min-width: 0;
 }
+
+/* Disagreement between the projection and the consensus rank. */
+.value-gap { display: block; font-size: 0.62rem; font-weight: 700; line-height: 1; margin-top: 0.1rem; }
+.gap-up { color: var(--good); }
+.gap-down { color: var(--bad); }

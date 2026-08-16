@@ -70,6 +70,9 @@ When several teams take the same position in quick succession, the remaining sup
 PICK TIMING
 Account for how many picks elapse before the user's next turn. A player who will plainly survive that gap can wait; a player who will not, cannot.
 
+TWO VALUATIONS
+When projections are loaded, each player carries \`valueFromProjections\` (a statistical forecast of points above replacement) and \`valueFromConsensusRank\` (where 100+ experts rank him, converted to points), plus \`projectionVsConsensusGap\` between them. They answer different questions and neither is authoritative. A large positive gap means the forecast likes him more than the market does — potential value, or a projection that has not caught up to news. A large negative gap means the market likes him more than the forecast does — potential trap, or expert knowledge the model lacks. Call out a large gap when it bears on the pick, and say which way it cuts. When only \`value\` is present, no projections were loaded and it is the rank-based number alone.
+
 INJURY AND NEWS
 Some players carry an \`injury\` field or \`recentNews\` entries. These are the only current information in the packet — the rankings themselves are a static snapshot and do not reflect them. Weigh them: a player whose rank predates a serious injury is overvalued by his own ranking, and a designation like "questionable" or a missed practice is a real risk on a player you would otherwise reach for. Say so explicitly when it changes your recommendation. Absence of an injury field means no news was loaded for that player, NOT that he is confirmed healthy — never state or imply that a player is healthy.
 

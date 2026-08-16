@@ -7,7 +7,7 @@
 
 import { parseRows, findHeaderRow, normHeader, parseTable, num } from '../js/csv.js';
 import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp, finalizePool } from '../js/players.js';
-import { replacementLevels, computeValues } from '../js/vorp.js';
+import { replacementLevels, computeValues, biggestDisagreements } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
 import { validateRecommendation, recommend } from '../js/claude.js';
@@ -302,6 +302,38 @@ test('computes true VORP when projections are supplied', () => {
   const withProj = pool.slice(0, 40).map((p) => ({ ...p, projPoints: 300 - p.ecr }));
   const res = computeValues(withProj, settings);
   eq(res.mode, 'projections');
+});
+
+test('keeps BOTH valuations when projections are loaded', () => {
+  const withProj = pool.slice(0, 60).map((p) => ({ ...p, projPoints: 300 - p.ecr }));
+  const res = computeValues(withProj, settings);
+  eq(res.hasBoth, true);
+  const p = withProj[0];
+  ok(p.valueModel != null, 'rank-based value missing');
+  ok(p.valueProj != null, 'projection-based value missing');
+  eq(p.value, p.valueProj, 'projections should drive the primary value: ');
+  eq(p.valueGap, Math.round(p.valueProj - p.valueModel));
+});
+
+test('leaves the projection value null when no projections are loaded', () => {
+  const c = pool.map((p) => ({ ...p }));
+  const res = computeValues(c, settings);
+  eq(res.hasBoth, false);
+  ok(c[0].valueModel != null, 'rank-based value missing');
+  eq(c[0].valueProj, null);
+  eq(c[0].valueGap, null);
+  eq(c[0].value, c[0].valueModel, 'primary value should fall back to the model: ');
+});
+
+test('surfaces the biggest projection-vs-consensus disagreements', () => {
+  const withProj = pool.slice(0, 60).map((p, i) => ({
+    ...p, projPoints: 300 - p.ecr + (i === 7 ? 250 : 0),   // one big outlier
+  }));
+  computeValues(withProj, settings);
+  const top = biggestDisagreements(withProj, 3);
+  ok(top.length === 3, 'expected three');
+  eq(top[0].name, withProj[7].name, 'the outlier should rank first: ');
+  ok(Math.abs(top[0].valueGap) > Math.abs(top[1].valueGap), 'not sorted by gap size');
 });
 
 // ============================================================================
