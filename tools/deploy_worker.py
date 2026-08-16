@@ -193,6 +193,12 @@ def smoke_test(url):
     }).encode()
     req = urllib.request.Request(url, data=payload, method="POST")
     req.add_header("Content-Type", "application/json")
+    # Without a browser-ish UA, Cloudflare's edge blocks the request with
+    # 403 / error 1010 before it ever reaches the Worker, which reads as a
+    # failed security check when nothing is actually wrong.
+    req.add_header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                 "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/131.0.0.0 Safari/537.36")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.status, resp.read().decode()[:200]
@@ -256,6 +262,17 @@ def main():
         print(f"  PASS — HTTP 401 {body.strip()[:80]}")
     elif status is None:
         print(f"  could not reach it yet ({body}). Propagation can take ~30s; retry the curl by hand.")
+    elif status == 403 and "1010" in body:
+        # Cloudflare's edge rejected this client, so the Worker never ran.
+        # Inconclusive, not a failure — say so rather than crying wolf.
+        print("  INCONCLUSIVE — Cloudflare's edge blocked this test client (error 1010),")
+        print("  so the request never reached your Worker. Verify by hand:")
+        print(f"    curl -s -o /dev/null -w '%{{http_code}}\\n' -X POST {url} \\")
+        print("      -H 'content-type: application/json' \\")
+        print("      -A 'Mozilla/5.0' \\")
+        print('      -d \'{"model":"claude-opus-5","max_tokens":16,'
+              '"messages":[{"role":"user","content":"hi"}]}\'')
+        print("  Expect 401. Anything else, do not use the Worker.")
     else:
         print(f"  UNEXPECTED HTTP {status}: {body}")
         print("  Do NOT use this until an unauthenticated POST returns 401.")
