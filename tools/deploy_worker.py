@@ -260,6 +260,16 @@ def main():
     status, body = smoke_test(url)
     if status == 401:
         print(f"  PASS — HTTP 401 {body.strip()[:80]}")
+    elif status is None and "CERTIFICATE_VERIFY_FAILED" in body:
+        # Common on Anaconda/self-built Pythons that lack a CA bundle. It says
+        # nothing about the Worker, so don't let it look like one.
+        print("  INCONCLUSIVE — this Python can't verify TLS certificates, so the test")
+        print("  never left the machine. Nothing to do with the Worker. Verify with curl:")
+        print(f"    curl -s -o /dev/null -w '%{{http_code}}\\n' -X POST {url} \\")
+        print("      -H 'content-type: application/json' -A 'Mozilla/5.0' \\")
+        print('      -d \'{"model":"claude-opus-5","max_tokens":16,'
+              '"messages":[{"role":"user","content":"hi"}]}\'')
+        print("  Expect 401.")
     elif status is None:
         print(f"  could not reach it yet ({body}). Propagation can take ~30s; retry the curl by hand.")
     elif status == 403 and "1010" in body:
