@@ -36,7 +36,9 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,6 +51,31 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SCORING_CHOICES = ["STD", "HALF", "PPR"]
 VALID_POS = {"QB", "RB", "WR", "TE", "DST", "K"}
+
+# The premium plan allows 1 request/second, 500/day. This script makes about
+# five calls, so the daily budget is irrelevant; the per-second one is not.
+MIN_INTERVAL_S = 1.2
+_last_call = [0.0]
+
+
+def _ssl_context():
+    """Some Python installs (python.org builds where Install Certificates was
+    never run) have no CA bundle and fail every HTTPS call with
+    CERTIFICATE_VERIFY_FAILED. Fall back to the system bundle rather than
+    disabling verification, which would be the wrong fix."""
+    try:
+        ctx = ssl.create_default_context()
+        if ctx.cert_store_stats().get("x509_ca", 0) > 0:
+            return ctx
+    except Exception:
+        pass
+    for candidate in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem"):
+        if os.path.exists(candidate):
+            return ssl.create_default_context(cafile=candidate)
+    return ssl.create_default_context()
+
+
+SSL_CTX = _ssl_context()
 
 
 def resolve_key(cli_key):
@@ -76,10 +103,27 @@ def get(path, key, soft=False, **params):
     """Fetch and decode. With soft=True, return None on failure instead of
     exiting -- used for the optional enrichment endpoints, which a free-tier
     plan may not cover and which must never take the whole run down."""
-    url = f"{BASE}{path}?{urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})}"
-    req = urllib.request.Request(url, headers={"x-api-key": key, "Accept": "application/json"})
+    # Cache-bust every call. The API sits behind CloudFront, which will
+    # happily serve a response cached from before a plan upgrade — that is
+    # exactly how a premium key kept reporting tier=free and 10 of 878
+    # records. Stale data on draft morning is the failure mode to avoid.
+    q = {k: v for k, v in params.items() if v is not None}
+    q["_cb"] = str(int(time.time() * 1000))
+    url = f"{BASE}{path}?{urllib.parse.urlencode(q)}"
+
+    # Respect 1 request/second.
+    wait = MIN_INTERVAL_S - (time.monotonic() - _last_call[0])
+    if wait > 0:
+        time.sleep(wait)
+    _last_call[0] = time.monotonic()
+
+    req = urllib.request.Request(url, headers={
+        "x-api-key": key,
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
+    })
     try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=45, context=SSL_CTX) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")[:200].replace("\n", " ")
@@ -88,6 +132,8 @@ def get(path, key, soft=False, **params):
             msg += " — check the key, and that your plan covers this endpoint"
         elif e.code == 404:
             msg += " — endpoint not found at this path"
+        elif e.code == 429:
+            msg += " — rate limited (1 req/sec, 500/day on premium)"
         detail = f"{msg}. {body}".strip()
     except urllib.error.URLError as e:
         detail = f"could not reach the API: {e.reason}"
@@ -100,16 +146,22 @@ def get(path, key, soft=False, **params):
 
 
 def tier_note(payload, label, count_seen):
-    """The free tier silently returns 10 records with count= the real total.
-    Left unflagged you get a 10-player draft board and no idea why."""
+    """Detect a truncated response.
+
+    `public_api_limited` is true even on premium, so it says nothing on its
+    own — the only reliable signal is getting back fewer records than the
+    payload's own `count`. The free tier returns 10 of 878 that way, and
+    offset/page/start are all ignored, so there is no pagination to fall back
+    on: a short response means a short board.
+    """
     if not isinstance(payload, dict):
         return None
-    if not payload.get("public_api_limited"):
-        return None
     total = payload.get("count")
-    return (f"{label}: API returned {count_seen} of {total} records — your key is on the "
-            f"'{payload.get('tier')}' tier, which caps every response at "
-            f"{payload.get('limit')}. Upgrade at fantasypros.com/api-data/ for the full set.")
+    if not isinstance(total, int) or count_seen >= total:
+        return None
+    return (f"{label}: API returned {count_seen} of {total} records — key is on the "
+            f"'{payload.get('tier')}' tier, capped at {payload.get('limit')} per response. "
+            f"Upgrade at fantasypros.com/api-data/ for the full set.")
 
 
 def find_player_list(payload):
@@ -225,18 +277,29 @@ def lookup(idx, name, pos=None):
     return idx.get((norm_key(name), pos)) or idx.get(norm_key(name))
 
 
+def clean_player_name(raw):
+    """The injuries feed appends a position to disambiguate ("Travis Hunter
+    (CB)"), which defeats a plain name match."""
+    return re.sub(r"\s*\(.*?\)\s*$", "", str(raw or "")).strip()
+
+
 def merge_injuries(players, payload):
     """Attach injury status. This is the one thing a downloaded CSV can never
-    tell you, and it moves draft boards on the morning of the draft."""
+    tell you, and it moves draft boards on the morning of the draft.
+
+    Matched on NAME, not player_id: the injuries feed uses a different id
+    space from consensus-rankings (Travis Hunter is 27887 there and 26034 on
+    the rankings board), so id matching silently attaches nothing.
+    """
     idx = index_by_name(players)
     by_id = {p["fpId"]: p for p in players if p.get("fpId") is not None}
     matched = 0
     for rec in find_player_list(payload):
-        name = field(rec, "player_name", "name", "player")
+        name = clean_player_name(field(rec, "player_name", "name", "player"))
         if not name:
             continue
         pos, _ = split_pos(field(rec, "position_id", "player_position_id", "position"))
-        target = by_id.get(field(rec, "player_id")) or lookup(idx, name, pos)
+        target = lookup(idx, name, pos) or by_id.get(field(rec, "player_id"))
         if not target:
             continue
         status = field(rec, "status", "player_injury_status", "injury_status")
@@ -459,10 +522,10 @@ def main():
                    position="ALL", scoring=args.scoring, week=args.week)
         matched, unmatched = merge_projections(players, proj, args.scoring)
         notes.append(f"Projections merged for {matched} of {len(players)} players.")
+        print("  " + notes[-1])
         if unmatched:
             notes.append(f"{len(unmatched)} projection rows did not match a ranked player "
                          f"(e.g. {', '.join(unmatched[:5])}).")
-        print("  " + notes[0])
 
     have_proj = sum(1 for p in players if p["projPoints"] is not None)
     notes.append("True VORP available (projected points present)." if have_proj

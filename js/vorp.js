@@ -167,10 +167,18 @@ export const VALUE_MODE_LABEL = {
   surrogate: 'Rank-based value — no projections loaded',
 };
 
-/** Players where the forecast and the market disagree most, either way. */
-export function biggestDisagreements(pool, n = 8) {
+/**
+ * Players where the forecast and the market disagree most, either way.
+ *
+ * Restricted to the draftable range on purpose. Unfiltered, the list is
+ * entirely third-string QBs projected for ~10 points: the rank curve assigns
+ * them a position on a scale that assumes they play, the projection knows
+ * they won't, and the resulting 200-point gaps are arithmetic noise rather
+ * than a signal about anyone you might draft.
+ */
+export function biggestDisagreements(pool, n = 8, { maxEcr = 200 } = {}) {
   return pool
-    .filter((p) => p.valueGap != null)
+    .filter((p) => p.valueGap != null && p.ecr != null && p.ecr <= maxEcr)
     .sort((a, b) => Math.abs(b.valueGap) - Math.abs(a.valueGap))
     .slice(0, n);
 }
