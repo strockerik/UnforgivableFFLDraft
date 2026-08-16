@@ -11,7 +11,7 @@ import { replacementLevels, computeValues } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
 import { validateRecommendation, recommend } from '../js/claude.js';
-import { DEFAULT_SETTINGS } from '../js/config.js';
+import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
 
 // --- tiny harness -----------------------------------------------------------
 let passed = 0, failed = 0;
@@ -228,8 +228,9 @@ const settings = { ...DEFAULT_SETTINGS };
 
 test('derives replacement levels from league settings', () => {
   // Replacement is the first UNSTARTABLE player, hence 11 not 10 at QB.
+  // WR is 35 because this league starts three, not two.
   const l = replacementLevels(settings);
-  eq(l.QB, 11); eq(l.RB, 26); eq(l.WR, 25); eq(l.TE, 12);
+  eq(l.QB, 11); eq(l.RB, 26); eq(l.WR, 35); eq(l.TE, 12);
 });
 
 test('puts the 12-team replacement quarterback at QB13, as the brief cites', () => {
@@ -248,11 +249,47 @@ test('falls back to the labeled surrogate when no projections are present', () =
   eq(mode, 'surrogate');
 });
 
-test('reproduces the water-diamond result: elite RB out-values elite QB', () => {
-  const top = (pos) => pool.filter((p) => p.pos === pos).sort((a, b) => b.value - a.value)[0].value;
+test('reproduces the water-diamond result under generic scoring', () => {
+  // Baseline rules = what a published Half-PPR ranking assumes.
+  const p2 = pool.map((p) => ({ ...p }));
+  computeValues(p2, { ...settings, scoringRules: { ...BASELINE_SCORING } });
+  const top = (pos) => p2.filter((p) => p.pos === pos).sort((a, b) => b.value - a.value)[0].value;
   ok(top('RB') > top('WR'), 'RB1 should out-value WR1');
   ok(top('WR') > top('QB'), 'WR1 should out-value QB1');
   ok(top('QB') > top('K'), 'QB1 should out-value K1');
+});
+
+test('6-point passing TDs lift QB value above the generic baseline', () => {
+  const qbTop = (rules) => {
+    const c = pool.map((p) => ({ ...p }));
+    computeValues(c, { ...settings, scoringRules: rules });
+    return c.filter((p) => p.pos === 'QB').sort((a, b) => b.value - a.value)[0].value;
+  };
+  const base = qbTop({ ...BASELINE_SCORING });
+  const league = qbTop({ passTd: 6, passInt: -3, reception: 0.5 });
+  ok(league > base + 10, `expected a clear QB lift, got ${Math.round(base)} -> ${Math.round(league)}`);
+});
+
+test('scoring rules leave positions they do not touch alone', () => {
+  const rbTop = (rules) => {
+    const c = pool.map((p) => ({ ...p }));
+    computeValues(c, { ...settings, scoringRules: rules });
+    return c.filter((p) => p.pos === 'RB').sort((a, b) => b.value - a.value)[0].value;
+  };
+  eq(Math.round(rbTop({ ...BASELINE_SCORING })), Math.round(rbTop({ passTd: 6, passInt: -3, reception: 0.5 })));
+});
+
+test('a third WR starter pushes WR replacement deeper and raises elite WR value', () => {
+  const wrTop = (roster) => {
+    const c = pool.map((p) => ({ ...p }));
+    computeValues(c, { ...settings, roster });
+    return c.filter((p) => p.pos === 'WR').sort((a, b) => b.value - a.value)[0].value;
+  };
+  const two = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1 };
+  const three = { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 1, DST: 1, K: 1 };
+  eq(replacementLevels({ ...settings, roster: two }).WR, 25);
+  eq(replacementLevels({ ...settings, roster: three }).WR, 35);
+  ok(wrTop(three) > wrTop(two), 'three WR starters should raise elite WR value');
 });
 
 test('the replacement-level player has value at or near zero', () => {
@@ -306,6 +343,19 @@ function mkState(picks = [], s = settings) {
 const avail = (st) => {
   const taken = new Set(st.picks.map((p) => p.playerId));
   return pool.filter((p) => !taken.has(p.id));
+};
+
+/**
+ * A plausible opponent: best available by value, but leaving DST and K until
+ * the last two rounds like any human would. Modelling them as pure
+ * best-by-value drafted all 28 kickers and defenses by round 12, which is not
+ * a harder test — it's an impossible board that no real draft produces.
+ */
+const opponentPick = (available, round, rounds) => {
+  const late = round >= rounds - 1;
+  const eligible = late ? available : available.filter((p) => !['DST', 'K'].includes(p.pos));
+  const from = eligible.length ? eligible : available;
+  return [...from].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
 };
 
 test('recommends a skill player, never a DST or K, in round 1', () => {
@@ -438,15 +488,31 @@ const mock = (() => {
   const seen = new Set();
   let dstKBeforeEnd = 0;
 
+  // Only your picks come from the engine. The other nine teams take best
+  // available by raw value, which is what actually happens in a room and what
+  // the app models: you record their picks, whatever they are.
+  //
+  // Running the needs-aware policy for all 150 picks is not a harder test, it
+  // is a different and wrong one — every simulated team then chases YOUR
+  // roster holes, which drained all 24 sample TEs by pick 120 and made an
+  // unfillable TE slot look like an engine bug.
   for (let i = 1; i <= total; i++) {
     const available = avail(st);
     const ev = evaluate(st, available);
-    const rec = deterministicPick(ev);
-    if (!rec) throw new Error(`no recommendation at pick ${i}`);
-    const chosen = available.find((p) => p.name === rec.primary_pick.name);
-    if (!chosen) throw new Error(`pick ${i} named "${rec.primary_pick.name}", not on the board`);
+    const mine = ev.position.isMyPick;
+
+    let chosen;
+    if (mine) {
+      const rec = deterministicPick(ev);
+      if (!rec) throw new Error(`no recommendation at pick ${i}`);
+      chosen = available.find((p) => p.name === rec.primary_pick.name);
+      if (!chosen) throw new Error(`pick ${i} named "${rec.primary_pick.name}", not on the board`);
+      if (['DST', 'K'].includes(chosen.pos) && ev.position.round < s.rounds - 1) dstKBeforeEnd++;
+    } else {
+      chosen = opponentPick(available, ev.position.round, s.rounds);
+    }
+
     if (seen.has(chosen.id)) throw new Error(`pick ${i} duplicated ${chosen.name}`);
-    if (['DST', 'K'].includes(chosen.pos) && ev.position.round < s.rounds - 1) dstKBeforeEnd++;
     seen.add(chosen.id);
     st.picks.push({ pickNo: i, playerId: chosen.id, teamSlot: slotOnClock(i, s.teams) });
   }
@@ -473,6 +539,22 @@ test('fills every starting slot by the end of the draft', () => {
   eq(a.roster.length, 15);
 });
 
+test('never ends the draft with an unfilled starter slot', () => {
+  // A regression guard: with 3 WR starters the engine used to spend its last
+  // picks on FLEX-eligible WRs and finish with an empty TE.
+  const s = { ...settings, teams: 10, rounds: 15, slot: 5 };
+  const st = mkState([], s);
+  for (let i = 1; i <= s.teams * s.rounds; i++) {
+    const available = avail(st);
+    const ev = evaluate(st, available);
+    const player = ev.position.isMyPick
+      ? available.find((p) => p.name === deterministicPick(ev).primary_pick.name)
+      : opponentPick(available, ev.position.round, s.rounds);
+    st.picks.push({ pickNo: i, playerId: player.id, teamSlot: slotOnClock(i, s.teams) });
+  }
+  eq(rosterAnalysis(st).unfilled, [], 'left open: ');
+});
+
 test('does not over-stack a single position', () => {
   const a = rosterAnalysis(mock.st);
   eq(a.counts.K > 2, false, `drafted ${a.counts.K} kickers: `);
@@ -485,6 +567,7 @@ test('builds a valid evidence packet at every one of your turns', () => {
   for (let i = 1; i <= s.teams * s.rounds; i++) {
     const available = avail(st);
     const ev = evaluate(st, available);
+    let player;
     if (ev.position.isMyPick) {
       const e = buildEvidence(st, available, ev);
       ok(e.availablePlayerAllowlist.length > 0, `empty allowlist at pick ${i}`);
@@ -492,9 +575,10 @@ test('builds a valid evidence packet at every one of your turns', () => {
         pool.find((x) => x.id === p.playerId).name));
       const leaked = e.availablePlayerAllowlist.filter((n) => takenNames.has(n));
       eq(leaked, [], `pick ${i} leaked drafted players: `);
+      player = available.find((p) => p.name === deterministicPick(ev).primary_pick.name);
+    } else {
+      player = opponentPick(available, ev.position.round, s.rounds);
     }
-    const chosen = deterministicPick(ev).primary_pick.name;
-    const player = available.find((p) => p.name === chosen);
     st.picks.push({ pickNo: i, playerId: player.id, teamSlot: slotOnClock(i, s.teams) });
   }
 });

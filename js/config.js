@@ -18,15 +18,36 @@ export const AUTH_MODES = ['direct', 'proxy'];
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DST', 'K'];
 export const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
 
+// The scoring rules a generic "Half-PPR" ranking assumes. Anything a league
+// does differently has to be corrected for, because the rankings can't know.
+export const BASELINE_SCORING = { passTd: 4, passInt: -2, reception: 0.5 };
+
 export const DEFAULT_SETTINGS = {
   teams: 10,
-  slot: 5,
+  // Kept in sync with draftOrder.indexOf(myTeamName)+1 by the setup panel.
+  // Seeded from team-key order, which is NOT the draft order — reset on draft day.
+  slot: 3,
   rounds: 15,
   scoring: 'Half-PPR',
-  roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1 },
-  bench: 6,
+  // Decoded from the Yahoo league export (league "Unforgivable", 10-team).
+  // passTd of 6 is the consequential one — see vorp.js.
+  scoringRules: { passTd: 6, passInt: -3, reception: 0.5, yardageBonuses: true },
+  // Read off the league's own week-4 roster export: QB/RB/RB/WR/WR/WR/TE/
+  // W-R-T/K/DEF = 10 starters, 5 bench, 1 IR. Three WR starters (not two)
+  // pushes WR replacement much deeper and raises elite WR value accordingly.
+  roster: { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 1, DST: 1, K: 1 },
+  bench: 5,
   model: 'claude-opus-5',
   effort: 'medium',
+  // Draft order, slot 1..N. Seeded with the league's team-key order, which is
+  // NOT the draft order — you set the real one on draft day, and `slot` is
+  // derived from where your team lands in it.
+  draftOrder: [
+    'Feel It In My Plums', '40 is a long way', 'Vegan Beer', 'Biz Fuck it',
+    'No Email till Brooklyn', 'Dad Bod', 'Harambe McHarambeface',
+    'The Juice is Loose', 'Do It Lady!', "Youain't1styourlast",
+  ],
+  myTeamName: 'Vegan Beer',
   authMode: 'direct',
   // Pre-filled so a new browser only needs the passphrase typed in. The URL
   // is not a secret — it's gated by APP_PASSPHRASE, and a request without the
@@ -65,6 +86,18 @@ export const TEAMS = new Set([
 
 // Name suffixes stripped before building a join key.
 export const SUFFIXES = new Set(['JR', 'SR', 'II', 'III', 'IV', 'V']);
+
+/** Display name for a draft slot (1-indexed). Falls back to "Team N". */
+export function teamNameForSlot(settings, slot) {
+  const name = (settings.draftOrder || [])[slot - 1];
+  return name || `Team ${slot}`;
+}
+
+/** Which slot the user drafts from, derived from the draft order. */
+export function mySlot(settings) {
+  const i = (settings.draftOrder || []).indexOf(settings.myTeamName);
+  return i >= 0 ? i + 1 : settings.slot;
+}
 
 export function starterSlots(settings) {
   const r = settings.roster;

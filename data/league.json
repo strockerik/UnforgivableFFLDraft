@@ -1,0 +1,78 @@
+{
+ "name": "Unforgivable",
+ "leagueId": "83923",
+ "season": "2025",
+ "teams": 10,
+ "scoringFormat": "Half-PPR",
+ "scoring": {
+  "pass_yd": 0.04,
+  "pass_td": 6,
+  "pass_int": -3,
+  "rush_yd": 0.1,
+  "rush_td": 6,
+  "reception": 0.5,
+  "rec_yd": 0.1,
+  "rec_td": 6,
+  "ret_yd": 0.0333,
+  "ret_td": 6,
+  "two_pt": 2,
+  "fum_lost": -2,
+  "off_fum_ret_td": 6,
+  "fg_0_19": 3,
+  "fg_20_29": 3,
+  "fg_30_39": 3,
+  "fg_40_49": 4,
+  "fg_50": 5,
+  "fg_miss": -1,
+  "pat_made": 1,
+  "pat_miss": -2,
+  "def_sack": 1,
+  "def_int": 2,
+  "def_fum_rec": 2,
+  "def_td": 6,
+  "def_safety": 2,
+  "def_block": 4,
+  "def_ret_td": 6,
+  "pa_0": 15,
+  "pa_1_6": 10,
+  "pa_7_13": 8,
+  "pa_14_20": 6,
+  "pa_21_27": 4,
+  "pa_28_34": 0,
+  "pa_35_plus": -4,
+  "xp_returned": 2
+ },
+ "bonuses": {
+  "pass_yd": [
+   {
+    "target": 300,
+    "points": 2
+   },
+   {
+    "target": 400,
+    "points": 2
+   }
+  ],
+  "rush_yd": [
+   {
+    "target": 100,
+    "points": 2
+   },
+   {
+    "target": 150,
+    "points": 2
+   }
+  ],
+  "rec_yd": [
+   {
+    "target": 100,
+    "points": 2
+   },
+   {
+    "target": 150,
+    "points": 2
+   }
+  ]
+ },
+ "sourceSeason": "2025"
+}

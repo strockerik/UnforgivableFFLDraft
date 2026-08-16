@@ -1,0 +1,11 @@
+team_key,name,rank,playoff_seed,outcome_totals,streak,points_for,points_against
+461.l.83923.t.3,Vegan Beer,1,1,"{'wins': '3', 'losses': 0, 'ties': 0, 'percentage': '1.000'}","{'type': 'win', 'value': '3'}",376.50,313.5
+461.l.83923.t.6,Dad Bod,2,2,"{'wins': '2', 'losses': '1', 'ties': 0, 'percentage': '.667'}","{'type': 'win', 'value': '2'}",400.50,330.0
+461.l.83923.t.7,Harambe McHarambeface,3,3,"{'wins': '2', 'losses': '1', 'ties': 0, 'percentage': '.667'}","{'type': 'win', 'value': '2'}",394.00,371.0
+461.l.83923.t.9,Do It Lady!,4,4,"{'wins': '2', 'losses': '1', 'ties': 0, 'percentage': '.667'}","{'type': 'win', 'value': '2'}",342.00,319.0
+461.l.83923.t.2,40 is a long way,5,5,"{'wins': '2', 'losses': '1', 'ties': 0, 'percentage': '.667'}","{'type': 'loss', 'value': '1'}",330.50,339.5
+461.l.83923.t.1,Feel It In My Plums,6,6,"{'wins': '1', 'losses': '2', 'ties': 0, 'percentage': '.333'}","{'type': 'win', 'value': '1'}",349.50,378.5
+461.l.83923.t.5,No Email till Brooklyn,7,7,"{'wins': '1', 'losses': '2', 'ties': 0, 'percentage': '.333'}","{'type': 'loss', 'value': '2'}",346.50,387.5
+461.l.83923.t.10,Youain't1styourlast,8,8,"{'wins': '1', 'losses': '2', 'ties': 0, 'percentage': '.333'}","{'type': 'loss', 'value': '2'}",326.50,378.5
+461.l.83923.t.4,Biz Fuck it,9,,"{'wins': '1', 'losses': '2', 'ties': 0, 'percentage': '.333'}","{'type': 'loss', 'value': '2'}",317.50,299.5
+461.l.83923.t.8,The Juice is Loose,10,,"{'wins': 0, 'losses': '3', 'ties': 0, 'percentage': '.000'}","{'type': 'loss', 'value': '3'}",308.50,375.0

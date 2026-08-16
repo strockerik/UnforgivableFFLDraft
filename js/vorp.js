@@ -5,7 +5,7 @@
 // roster settings. That's why an elite RB generates more surplus than an elite
 // QB despite scoring fewer points.
 
-import { FLEX_SHARE, POSITIONS } from './config.js';
+import { FLEX_SHARE, POSITIONS, BASELINE_SCORING } from './config.js';
 
 /**
  * Replacement index per position, computed from league settings — never
@@ -45,12 +45,62 @@ const CURVE_ANCHORS = {
 };
 const LN24 = Math.log(24);
 
-function surrogatePoints(pos, rank) {
+// Approximate season volumes at positional rank 1 and rank 24, used only to
+// convert a scoring-rule difference into a points difference. Coarse on
+// purpose — the goal is to move QBs the right direction by roughly the right
+// amount, not to project anyone's stat line.
+const VOLUME = {
+  QB: { passTd: [32, 18], passInt: [10, 12], reception: [0, 0] },
+  RB: { passTd: [0, 0], passInt: [0, 0], reception: [60, 28] },
+  WR: { passTd: [0, 0], passInt: [0, 0], reception: [100, 68] },
+  TE: { passTd: [0, 0], passInt: [0, 0], reception: [85, 34] },
+  DST: { passTd: [0, 0], passInt: [0, 0], reception: [0, 0] },
+  K: { passTd: [0, 0], passInt: [0, 0], reception: [0, 0] },
+};
+
+/**
+ * How far this league's scoring moves a position's curve away from the
+ * generic Half-PPR baseline the published rankings assume.
+ *
+ * This is why it matters: a 6-point passing touchdown is worth ~+64 points a
+ * season to an elite QB over the 4-point default. Rankings built on the
+ * default therefore understate QB value in this league, and no amount of
+ * reading the rankings file can reveal that — the information isn't in it.
+ */
+function scoringDelta(pos, rules) {
+  if (!rules) return [0, 0];
+  const v = VOLUME[pos];
+  if (!v) return [0, 0];
+  const d = (key, baseline) => {
+    const diff = (rules[key] ?? baseline) - baseline;
+    return [diff * v[key][0], diff * v[key][1]];
+  };
+  const [td1, td24] = d('passTd', BASELINE_SCORING.passTd);
+  const [int1, int24] = d('passInt', BASELINE_SCORING.passInt);
+  const [rec1, rec24] = d('reception', BASELINE_SCORING.reception);
+  return [td1 + int1 + rec1, td24 + int24 + rec24];
+}
+
+function surrogatePoints(pos, rank, rules) {
   const anchor = CURVE_ANCHORS[pos];
   if (!anchor || !rank || rank < 1) return 0;
-  const [p1, p24] = anchor;
+  const [d1, d24] = scoringDelta(pos, rules);
+  const p1 = anchor[0] + d1;
+  const p24 = anchor[1] + d24;
   const b = (p1 - p24) / LN24;
   return p1 - b * Math.log(rank);
+}
+
+/** Positions whose value this league's scoring shifts, for the UI to explain. */
+export function scoringAdjustments(rules) {
+  const out = [];
+  for (const pos of POSITIONS) {
+    const [d1] = scoringDelta(pos, rules);
+    if (Math.abs(d1) >= 5) {
+      out.push({ pos, deltaAtRank1: Math.round(d1) });
+    }
+  }
+  return out.sort((a, b) => Math.abs(b.deltaAtRank1) - Math.abs(a.deltaAtRank1));
 }
 
 /**
@@ -59,6 +109,7 @@ function surrogatePoints(pos, rank) {
  */
 export function computeValues(pool, settings) {
   const levels = replacementLevels(settings);
+  const rules = settings.scoringRules;
   const usingProjections = pool.some((p) => p.projPoints != null);
 
   if (usingProjections) {
@@ -80,7 +131,7 @@ export function computeValues(pool, settings) {
 
     for (const p of pool) {
       p.value = p.projPoints == null
-        ? surrogatePoints(p.pos, p.posRank) - surrogatePoints(p.pos, levels[p.pos])
+        ? surrogatePoints(p.pos, p.posRank, rules) - surrogatePoints(p.pos, levels[p.pos], rules)
         : p.projPoints - (replacementPoints[p.pos] ?? 0);
       p.vorp = p.value;
     }
@@ -88,7 +139,7 @@ export function computeValues(pool, settings) {
   }
 
   for (const p of pool) {
-    p.value = surrogatePoints(p.pos, p.posRank) - surrogatePoints(p.pos, levels[p.pos]);
+    p.value = surrogatePoints(p.pos, p.posRank, rules) - surrogatePoints(p.pos, levels[p.pos], rules);
     p.vorp = p.value;
   }
   return { mode: 'surrogate', levels, replacementPoints: null };

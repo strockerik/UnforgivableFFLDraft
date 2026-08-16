@@ -139,6 +139,16 @@ function restoreFocus(snap) {
   }
 }
 
+/** Reorder the draft board, keeping `slot` pointed at your own team. */
+function moveTeam(index, dir) {
+  const s = state.settings;
+  const next = [...s.draftOrder];
+  const j = index + dir;
+  if (j < 0 || j >= next.length) return;
+  [next[index], next[j]] = [next[j], next[index]];
+  setSettings({ draftOrder: next, slot: next.indexOf(s.myTeamName) + 1 || s.slot });
+}
+
 function render() {
   if (!root) return;
   const focusSnap = captureFocus();
@@ -225,7 +235,52 @@ function render() {
     ),
 
     el('section', { class: 'setup-group' },
-      el('h3', {}, '3. Claude'),
+      el('h3', {}, '3. Draft order'),
+      el('p', { class: 'field-hint' },
+        'Set this on draft day once the order is drawn. Your slot is derived from ',
+        'where your team lands, so you never set it twice. Use ↑↓ to reorder.'),
+      el('ol', { class: 'order-list' },
+        (s.draftOrder || []).slice(0, s.teams).map((name, i) => el('li', {
+          class: 'order-row' + (name === s.myTeamName ? ' order-mine' : ''),
+        },
+          el('span', { class: 'order-slot' }, String(i + 1)),
+          el('input', {
+            class: 'order-name',
+            type: 'text',
+            name: `team-${i}`,
+            value: name,
+            onchange: (e) => {
+              const next = [...s.draftOrder];
+              const wasMine = next[i] === s.myTeamName;
+              next[i] = e.target.value.trim() || `Team ${i + 1}`;
+              setSettings({
+                draftOrder: next,
+                myTeamName: wasMine ? next[i] : s.myTeamName,
+                slot: next.indexOf(wasMine ? next[i] : s.myTeamName) + 1 || s.slot,
+              });
+            },
+          }),
+          el('button', {
+            class: 'btn small', title: 'Move up', disabled: i === 0,
+            onclick: () => moveTeam(i, -1),
+          }, '↑'),
+          el('button', {
+            class: 'btn small', title: 'Move down', disabled: i === s.teams - 1,
+            onclick: () => moveTeam(i, 1),
+          }, '↓'),
+          el('button', {
+            class: 'btn small' + (name === s.myTeamName ? ' primary' : ''),
+            title: 'Mark as your team',
+            onclick: () => setSettings({ myTeamName: name, slot: i + 1 }),
+          }, name === s.myTeamName ? 'you' : 'set'),
+        ))),
+      el('p', { class: 'computed' },
+        el('strong', {}, 'You pick from slot '), String(s.slot),
+        ` (${s.myTeamName}) — picks ${myPicks(s).slice(0, 5).join(', ')}…`),
+    ),
+
+    el('section', { class: 'setup-group' },
+      el('h3', {}, '4. Claude'),
       field('Connection', el('select', {
         onchange: (e) => setSettings({ authMode: e.target.value }),
       }, [
@@ -270,7 +325,7 @@ function render() {
     ),
 
     el('section', { class: 'setup-group danger' },
-      el('h3', {}, '4. Reset'),
+      el('h3', {}, '5. Reset'),
       el('div', { class: 'row' },
         el('button', { class: 'btn', onclick: () => { if (confirm('Clear all picks? The player pool stays loaded.')) resetDraft(); } }, 'Reset draft'),
         el('button', { class: 'btn', onclick: () => { if (confirm('Erase everything, including the pool and API key?')) hardReset(); } }, 'Erase everything'),

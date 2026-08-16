@@ -103,6 +103,7 @@ export function positionRuns(state) {
 export function scoreCandidate(player, ctx) {
   const { analysis, position, settings, cliffs } = ctx;
   const progress = position.round / settings.rounds;
+  const picksLeft = settings.rounds - position.round + 1;
   let score = player.value ?? 0;
 
   // Filling an actual starter hole matters more as the draft runs out.
@@ -111,16 +112,27 @@ export function scoreCandidate(player, ctx) {
     (analysis.unfilled.includes('FLEX') && FLEX_ELIGIBLE.includes(player.pos));
   if (fillsStarter) score += 120 * progress;
 
+  // Endgame: once you have exactly as many picks left as unfilled starter
+  // slots, every remaining pick must fill one. Without this the engine keeps
+  // taking the highest-value player — which is usually a WR who slots into
+  // FLEX — and finishes the draft with an empty TE slot it can no longer fill.
+  if (picksLeft <= analysis.unfilled.length && !fillsStarter) score -= 5000;
+
   // Stop stacking a position you've already covered twice over.
   const have = analysis.counts[player.pos] || 0;
   const want = settings.roster[player.pos] || 0;
   if (have >= want + 2) score -= 40 * (have - want - 1);
 
-  // Kickers and defenses in round 3 lose leagues.
+  // Kickers and defenses in round 3 lose leagues. Gate them on picks
+  // remaining rather than round number: they are fungible and always
+  // available, so you take them only when the picks left are exactly the ones
+  // they need. Gating on round instead let them outbid an unfilled TE in the
+  // second-to-last round and end the draft with an empty starter slot.
   if (player.pos === 'DST' || player.pos === 'K') {
-    const lastTwo = position.round >= settings.rounds - 1;
-    if (!lastTwo) score -= 1000;
-    else if (analysis.unfilled.includes(player.pos)) score += 500;
+    const lateSlotsOpen = analysis.unfilled.filter((p) => p === 'DST' || p === 'K').length;
+    if (!analysis.unfilled.includes(player.pos)) score -= 1000;
+    else if (picksLeft > lateSlotsOpen) score -= 1000;
+    else score += 500;
   }
 
   // A tier about to empty makes that position urgent.

@@ -1,7 +1,7 @@
 // Available-player board: typeahead search, position filter, one-tap draft.
 
 import { el, mount } from './dom.js';
-import { POSITIONS } from '../config.js';
+import { POSITIONS, teamNameForSlot } from '../config.js';
 import { state, availablePlayers, draftPlayer } from '../state.js';
 import { slotOnClock } from '../snake.js';
 
@@ -113,9 +113,9 @@ function handleDraft(player) {
   const pickNo = state.picks.length + 1;
   const slot = slotOnClock(pickNo, state.settings.teams);
   const isMine = slot === state.settings.slot;
-  const who = isMine ? 'YOU' : `team ${slot}`;
+  const who = isMine ? 'YOU' : teamNameForSlot(state.settings, slot);
 
-  if (isMine && !confirm(`Pick ${pickNo} is YOURS.\n\nDraft ${player.name} (${player.pos}) to your roster?`)) return;
+  if (isMine && !confirm(`Pick ${pickNo} is YOURS.\n\nDraft ${player.name} (${player.pos}) to ${who}?`)) return;
 
   const res = draftPlayer(player.id);
   if (!res.ok) { alert(res.error); return; }

@@ -1,6 +1,7 @@
 // Bootstrap and wiring.
 
 import { $, el, mount } from './ui/dom.js';
+import { teamNameForSlot } from './config.js';
 import { state, subscribe, load, undo, canUndo, availablePlayers } from './state.js';
 import { draftPosition } from './snake.js';
 import { VALUE_MODE_LABEL } from './vorp.js';
@@ -9,6 +10,7 @@ import { initRoster } from './ui/roster.js';
 import { initRecs } from './ui/recs.js';
 import { initSettings, autoLoad } from './ui/settings.js';
 import { initCheatsheet } from './ui/cheatsheet.js';
+import { initTeams } from './ui/teams.js';
 
 function renderStatusBar() {
   const bar = $('#status-bar');
@@ -34,7 +36,7 @@ function renderStatusBar() {
     ),
     el('div', { class: 'stat' + (pos.isMyPick ? ' stat-mine' : '') },
       el('span', { class: 'stat-label' }, 'On the clock'),
-      el('span', { class: 'stat-value' }, pos.complete ? '—' : (pos.isMyPick ? 'YOU' : `Team ${pos.slotOnClock}`)),
+      el('span', { class: 'stat-value' }, pos.complete ? '—' : (pos.isMyPick ? 'YOU' : teamNameForSlot(state.settings, pos.slotOnClock))),
     ),
     el('div', { class: 'stat' },
       el('span', { class: 'stat-label' }, 'Until your turn'),
@@ -45,7 +47,7 @@ function renderStatusBar() {
       el('span', { class: 'stat-value' }, String(availablePlayers().length)),
     ),
     el('div', { class: 'bar-actions' },
-      lastPlayer ? el('span', { class: 'last-pick' }, `Last: ${lastPlayer.name}`) : null,
+      lastPlayer ? el('span', { class: 'last-pick' }, `${lastPlayer.name} \u2192 ${teamNameForSlot(state.settings, last.teamSlot)}`) : null,
       el('button', { class: 'btn small', disabled: !canUndo(), onclick: () => undo() }, 'Undo'),
     ),
   );
@@ -75,6 +77,7 @@ function main() {
   const rerenderRecs = initRecs($('#recs'));
   const rerenderSettings = initSettings($('#setup'));
   const rerenderCheat = initCheatsheet($('#cheatsheet'));
+  const rerenderTeams = initTeams($('#teams'));
 
   subscribe(() => {
     renderStatusBar();
@@ -84,6 +87,7 @@ function main() {
     rerenderRecs();
     rerenderSettings();
     rerenderCheat();
+    rerenderTeams();
   });
 
   renderStatusBar();

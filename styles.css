@@ -237,3 +237,41 @@ body {
   .cs-rank, .cs-meta { color: #555; }
   .replacement-line { border-bottom: 1.5pt dashed #000; }
 }
+
+/* ---- league rosters ---- */
+.teams { padding: 0 0.9rem 0.9rem; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 0.6rem; }
+.team-card {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 0.5rem 0.6rem;
+}
+.team-mine { border-color: var(--mine); }
+.team-onclock { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.team-head { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
+.team-slot {
+  width: 1.3rem; height: 1.3rem; border-radius: 4px; flex: none;
+  background: var(--line); color: var(--text);
+  font-size: 0.7rem; font-weight: 700; display: grid; place-items: center;
+}
+.team-name { font-weight: 650; font-size: 0.85rem; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-count { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tag.you { background: var(--mine); color: #000; border: 0; }
+.tag.onclock { background: var(--accent); color: #fff; border: 0; }
+.team-pos-line { display: flex; gap: 0.2rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
+.team-list { list-style: none; margin: 0; padding: 0; font-size: 0.78rem; display: grid; gap: 0.1rem; }
+.team-list li { display: grid; grid-template-columns: 1.7rem 1fr auto; gap: 0.3rem; align-items: baseline; }
+.team-pick-no { color: var(--muted); font-variant-numeric: tabular-nums; }
+.team-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-needs { margin-top: 0.4rem; font-size: 0.72rem; color: var(--warn); }
+.team-needs.done { color: var(--good); }
+
+/* ---- draft order editor ---- */
+.order-list { list-style: none; margin: 0.4rem 0; padding: 0; display: grid; gap: 0.25rem; max-width: 34rem; }
+.order-row { display: grid; grid-template-columns: 1.6rem 1fr auto auto auto; gap: 0.3rem; align-items: center; }
+.order-mine .order-name { border-color: var(--mine); }
+.order-slot { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-align: right; }
+.order-name {
+  padding: 0.25rem 0.45rem; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 5px; font-size: 0.85rem; min-width: 0;
+}
