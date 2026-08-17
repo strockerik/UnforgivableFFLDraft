@@ -5,6 +5,7 @@ import { el, mount } from './dom.js';
 import { state, availablePlayers, getApiKey, getPassphrase, draftPlayer } from '../state.js';
 import { evaluate, deterministicPick, buildEvidence } from '../engine.js';
 import { recommend, validateRecommendation, estimateCost, ClaudeError } from '../claude.js';
+import { confirmDraft, draftTarget } from './draft-prompt.js';
 
 let root = null;
 let busy = false;
@@ -34,12 +35,12 @@ function pickCard(pick, evaluation, primary) {
       ? el('button', {
           class: 'btn small',
           onclick: () => {
-            if (!confirm(`Draft ${player.name} (${player.pos}) to your roster?`)) return;
+            if (!confirmDraft(player)) return;
             const res = draftPlayer(player.id);
             if (!res.ok) alert(res.error);
             else { result = null; render(); }
           },
-        }, `Draft ${pick.name}`)
+        }, `Draft ${pick.name} \u2192 ${draftTarget().who}`)
       : el('span', { class: 'warn-inline' }, 'Not found on the board — do not draft.'),
   );
 }

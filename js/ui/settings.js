@@ -52,11 +52,9 @@ async function ingest(rankingsText, adpText, meta) {
  * page cannot call it directly — the script fetches server-side and leaves
  * this file behind.
  */
-async function loadJson() {
+function ingestJson(text, sourceLabel) {
   try {
-    const res = await fetch('data/players.json');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data = JSON.parse(text);
     const players = Array.isArray(data) ? data : data.players;
     if (!Array.isArray(players) || !players.length) throw new Error('No players array in the file.');
 
@@ -71,14 +69,33 @@ async function loadJson() {
     const { mode } = computeValues(pool, state.settings);
     const label = data.season
       ? `FantasyPros ${data.season} ${data.scoring || ''} — fetched ${(data.fetchedAt || '').slice(0, 16).replace('T', ' ')}`
-      : 'data/players.json';
+      : sourceLabel;
     setPool(pool, mode, [...notes, ...warnings], { label, isSample: false });
+
+    // A pool reload drops the tags that were attached to the old pool, so
+    // re-apply the strategy document if one is loaded.
+    if (state.strategyText || (state.strategyMeta && state.strategyMeta.tagCount)) {
+      setStatus(`Loaded ${pool.length} players from ${label}. Re-applying strategy tags…`, 'ok');
+      loadStrategyFile();
+      return;
+    }
     setStatus(`Loaded ${pool.length} players from ${label}. ${VALUE_MODE_LABEL[mode]}.`, 'ok');
   } catch (err) {
+    setStatus(`Could not read ${sourceLabel}: ${err.message}`, 'error');
+  }
+}
+
+async function loadJson() {
+  try {
+    const res = await fetch(`data/players.json?_=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    ingestJson(await res.text(), 'data/players.json');
+  } catch (err) {
     setStatus(
-      `Could not load data/players.json (${err.message}). ` +
-      'Generate it with:  python3 tools/fetch_fantasypros.py --season 2026 --scoring HALF --projections   ' +
-      '— and note fetch() needs an http:// origin, so run python3 -m http.server 8000.',
+      `Could not fetch data/players.json (${err.message}). ` +
+      'Generate it with:  python3 tools/fetch_fantasypros.py --season 2026 --scoring HALF --all   ' +
+      '— then either run locally (python3 -m http.server 8000) or use the upload button, ' +
+      'since the licensed data is not published to the site.',
       'error'
     );
   }
@@ -260,6 +277,14 @@ function render() {
       ),
       el('div', { class: 'row' },
         el('button', { class: 'btn primary-outline', onclick: loadJson }, 'Load data/players.json'),
+        field('or upload players.json', el('input', {
+          type: 'file', accept: '.json,application/json',
+          onchange: async (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            ingestJson(await readFileText(f), f.name);
+          },
+        }), 'For the published site, where the licensed data is not committed'),
         el('button', { class: 'btn', onclick: loadSample }, 'Load synthetic sample data'),
       ),
       el('p', { class: 'field-hint' },
