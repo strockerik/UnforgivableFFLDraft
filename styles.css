@@ -10,12 +10,20 @@
   --warn: #f2b544;
   --bad: #ff6b6b;
   --mine: #ffd166;
+  /* Text-safe variants. The bright values above are for fills and borders;
+     as TEXT on a pale tint in light mode they fall under 4.5:1. */
+  --good-ink: #2f9e6e;
+  --warn-ink: #8a6100;
+  --bad-ink: #c0392b;
+  --row-alt: rgba(255, 255, 255, 0.022);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f4f6fa; --panel: #ffffff; --panel-2: #eef1f7; --line: #d7dce8;
     --text: #131722; --muted: #5d667a; --accent: #1668d6; --mine: #b47700;
+    --good-ink: #17694a; --warn-ink: #7a5200; --bad-ink: #a5281c;
+    --row-alt: rgba(0, 0, 0, 0.018);
   }
 }
 
@@ -43,8 +51,11 @@ body {
 
 .status-bar { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; flex: 1; }
 .stat { display: flex; flex-direction: column; line-height: 1.2; }
-.stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .stat-value { font-size: 1.05rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat-hero .stat-value { font-size: 2.1rem; font-weight: 750; line-height: 1.05; letter-spacing: -0.01em; }
+.stat-hero .stat-label { font-size: 0.72rem; }
+@media (max-width: 720px) { .stat-hero .stat-value { font-size: 1.5rem; } }
 .stat-mine .stat-value { color: var(--mine); }
 .status-msg { color: var(--muted); }
 .bar-actions { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
@@ -101,18 +112,27 @@ body {
 /*  +   player            POS   ECR  TIER  BYE   ADP  PROJ  VALUE  */
 .player {
   display: grid;
-  grid-template-columns: 28px minmax(0,1fr) 3.6rem 2.6rem 2.4rem 2.4rem 3rem 3.2rem 4rem;
+  grid-template-columns: 28px minmax(0,1fr) 3.6rem 4rem 2.6rem 2.4rem 2.6rem 3rem 3.2rem;
   gap: 0.35rem; align-items: center;
   padding: 0.35rem 0.3rem; border-bottom: 1px solid var(--line);
 }
-.player:hover { background: var(--panel-2); }
 .player-name { font-weight: 600; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
 .player-meta { font-size: 0.75rem; color: var(--muted); }
 
-.cell { font-variant-numeric: tabular-nums; font-size: 0.82rem; text-align: right; color: var(--text); }
+.cell { font-variant-numeric: tabular-nums; font-size: 0.86rem; text-align: right; color: var(--text); }
 .cell.col-left { text-align: left; }
-.cell-ecr, .cell-tier, .cell-bye, .cell-adp { color: var(--muted); }
-.cell.strong { font-weight: 700; color: var(--accent); font-size: 0.95rem; }
+/* Mute the column HEADER, not the value — these are numbers you scan fast. */
+.cell.strong { font-weight: 750; color: var(--accent); font-size: 1rem; }
+
+/* Zebra striping keeps the eye on one line across seven numeric columns. */
+.player-list > .player:nth-of-type(even) { background: var(--row-alt); }
+.player:hover { background: var(--panel-2); }
+.player { cursor: pointer; }
+
+/* A tier boundary reads as a gap rather than as text you have to compare. */
+.player.tier-break { border-top: 2px solid var(--line); }
+/* What Enter will draft. */
+.player.top-match { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* sortable header */
 .player-head {
@@ -122,17 +142,24 @@ body {
 }
 .col-head {
   background: none; border: 0; cursor: pointer; padding: 0.15rem 0;
-  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
   color: var(--muted); text-align: right; white-space: nowrap;
 }
 .col-head.col-name, .col-head.col-left { text-align: left; }
+.col-head.col-strong { color: var(--text); }
 .col-head:hover { color: var(--accent); }
 .col-head.sorted { color: var(--accent); }
 .arrow { font-size: 0.55rem; margin-left: 0.15rem; }
 
-@media (max-width: 1100px) {
-  .player { grid-template-columns: 28px minmax(0,1fr) 3.6rem 2.6rem 2.4rem 3rem 4rem; }
-  .cell-ecr, .col-head.cell-ecr, .cell-bye, .col-head.cell-bye { display: none; }
+/* Bye conflicts are a real decision input; ECR is largely redundant with ADP
+   for scanning, so it goes first. */
+@media (max-width: 1180px) {
+  .player { grid-template-columns: 28px minmax(0,1fr) 3.6rem 4rem 2.4rem 2.4rem 3rem 3.2rem; }
+  .cell-ecr, .col-head.cell-ecr { display: none; }
+}
+@media (max-width: 980px) {
+  .player { grid-template-columns: 28px minmax(0,1fr) 3.6rem 4rem 2.4rem 2.4rem; }
+  .cell-adp, .col-head.cell-adp, .cell-projPoints, .col-head.cell-projPoints { display: none; }
 }
 
 .draft-btn {
@@ -157,8 +184,18 @@ body {
 /* ---- recommendations ---- */
 .rec-top { display: flex; justify-content: space-between; align-items: center; }
 .badge { font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 999px; }
-.badge-claude { background: color-mix(in srgb, var(--good) 25%, transparent); color: var(--good); }
-.badge-fallback { background: color-mix(in srgb, var(--warn) 25%, transparent); color: var(--warn); }
+/* The Claude-vs-fallback distinction must survive light mode and colour
+   blindness, so it carries a glyph and a border style, not just a hue. */
+.badge-claude {
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+  color: var(--good-ink); border: 1px solid var(--good);
+}
+.badge-claude::before { content: '\2713\00a0'; }
+.badge-fallback {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn-ink); border: 1px dashed var(--warn);
+}
+.badge-fallback::before { content: '\26A0\00a0'; }
 
 .on-clock { color: var(--mine); font-weight: 650; margin: 0.3rem 0 0.6rem; }
 
@@ -200,7 +237,7 @@ body {
 .btn.small { padding: 0.25rem 0.55rem; font-size: 0.78rem; }
 
 .warn-inline {
-  color: var(--warn); font-size: 0.82rem; margin: 0.4rem 0;
+  color: var(--warn-ink); font-size: 0.82rem; margin: 0.4rem 0;
   padding: 0.35rem 0.5rem; border-left: 3px solid var(--warn);
   background: color-mix(in srgb, var(--warn) 10%, transparent);
 }
@@ -234,8 +271,8 @@ body {
 
 .computed { font-size: 0.8rem; color: var(--muted); margin: 0.35rem 0 0; font-variant-numeric: tabular-nums; }
 .status { font-size: 0.85rem; padding: 0.4rem 0.6rem; border-radius: 6px; margin: 0.5rem 0 0; }
-.status-ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
-.status-error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.status-ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good-ink); }
+.status-error { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad-ink); }
 .status-info { background: var(--panel-2); color: var(--muted); }
 .warnings { margin-top: 0.6rem; font-size: 0.8rem; }
 .warnings ul { max-height: 14rem; overflow-y: auto; padding-left: 1.1rem; }
@@ -291,8 +328,8 @@ body {
 .team-list li { display: grid; grid-template-columns: 1.7rem 1fr auto; gap: 0.3rem; align-items: baseline; }
 .team-pick-no { color: var(--muted); font-variant-numeric: tabular-nums; }
 .team-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.team-needs { margin-top: 0.4rem; font-size: 0.72rem; color: var(--warn); }
-.team-needs.done { color: var(--good); }
+.team-needs { margin-top: 0.4rem; font-size: 0.72rem; color: var(--warn-ink); }
+.team-needs.done { color: var(--good-ink); }
 
 /* ---- draft order editor ---- */
 .order-list { list-style: none; margin: 0.4rem 0; padding: 0; display: grid; gap: 0.25rem; max-width: 34rem; }
@@ -306,16 +343,47 @@ body {
 
 /* Disagreement between the projection and the consensus rank. */
 .value-gap { display: block; font-size: 0.62rem; font-weight: 700; line-height: 1; margin-top: 0.1rem; }
-.gap-up { color: var(--good); }
-.gap-down { color: var(--bad); }
+.gap-up { color: var(--good-ink); }
+.gap-down { color: var(--bad-ink); }
 
 /* ---- strategy-document tags ---- */
 .player-tags { display: flex; gap: 0.2rem; flex-wrap: wrap; margin: 0.15rem 0; }
 .player-tagnote { font-size: 0.72rem; color: var(--muted); font-style: italic; margin-bottom: 0.1rem; }
-.tag.strat { border: 0; color: #fff; text-transform: none; }
-.strat-sleeper, .strat-breakout, .strat-volume-king { background: #2f9e6e; }
-.strat-schedule-boost { background: #3b7fd4; }
-.strat-bust, .strat-injury-risk { background: #c0413b; }
-.strat-committee-risk, .strat-rookie-uncertainty { background: #b8860b; }
-.strat-handcuff { background: #6b7280; }
-.tag.strat-conf { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+.tag.strat { text-transform: none; font-weight: 650; }
+/* Praise is an outline; risk is a fill. A drafter needs warnings to pop. */
+.strat-sleeper, .strat-breakout, .strat-volume-king, .strat-schedule-boost, .strat-handcuff {
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+}
+.strat-bust, .strat-injury-risk { background: var(--bad); border: 0; color: #fff; }
+.strat-committee-risk, .strat-rookie-uncertainty {
+  background: color-mix(in srgb, var(--warn) 24%, transparent);
+  border: 1px solid var(--warn); color: var(--warn-ink);
+}
+.tag.strat-more { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+.player-sub { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+/* Injury collapses to a glyph; full status lives in the tooltip. */
+.inj-dot { font-size: 0.7rem; color: var(--warn-ink); cursor: help; }
+.inj-dot.inj-bad { color: var(--bad-ink); font-weight: 700; }
+
+/* Remaining-per-position counts on the filter chips. */
+.chip { display: inline-flex; align-items: center; gap: 0.3rem; }
+.chip-count { font-size: 0.68rem; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.chip.active .chip-count { opacity: 0.9; }
+
+/* Undo toast */
+.toast-host { position: fixed; left: 50%; bottom: 1.1rem; transform: translateX(-50%); z-index: 50; }
+.toast {
+  display: flex; align-items: center; gap: 0.8rem;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 9px;
+  padding: 0.55rem 0.7rem 0.55rem 0.9rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28); font-size: 0.9rem;
+}
+.toast-msg { font-weight: 600; }
+.toast-undo {
+  background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+  padding: 0.25rem 0.7rem; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+}
+.toast-x { background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; line-height: 1; }
+@media print { .toast-host { display: none !important; } }

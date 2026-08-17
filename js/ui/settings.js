@@ -476,6 +476,12 @@ function render() {
 
     el('section', { class: 'setup-group danger' },
       el('h3', {}, '6. Reset'),
+      field('Confirm every pick', el('select', {
+        onchange: (e) => setSettings({ confirmEveryPick: e.target.value === 'yes' }),
+      }, [
+        el('option', { value: 'yes', selected: s.confirmEveryPick !== false }, 'Yes — ask before recording'),
+        el('option', { value: 'no', selected: s.confirmEveryPick === false }, 'No — record instantly, undo via toast'),
+      ]), 'Off is faster on the clock; the undo toast catches mistakes either way.'),
       el('div', { class: 'row' },
         el('button', { class: 'btn', onclick: () => { if (confirm('Clear all picks? The player pool stays loaded.')) resetDraft(); } }, 'Reset draft'),
         el('button', { class: 'btn', onclick: () => { if (confirm('Erase everything, including the pool and API key?')) hardReset(); } }, 'Erase everything'),

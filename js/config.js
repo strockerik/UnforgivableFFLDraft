@@ -48,6 +48,11 @@ export const DEFAULT_SETTINGS = {
     'The Juice is Loose', 'Do It Lady!', "Youain't1styourlast",
   ],
   myTeamName: 'Vegan Beer',
+  // Design review argued for instant-record + undo instead of a modal on
+  // every pick. Erik asked for the confirmation explicitly, so it stays the
+  // default — but the faster path is one toggle away, and the undo toast
+  // exists either way.
+  confirmEveryPick: true,
   authMode: 'direct',
   // Pre-filled so a new browser only needs the passphrase typed in. The URL
   // is not a secret — it's gated by APP_PASSPHRASE, and a request without the

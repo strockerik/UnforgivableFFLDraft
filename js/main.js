@@ -34,11 +34,13 @@ function renderStatusBar() {
       el('span', { class: 'stat-label' }, 'Round'),
       el('span', { class: 'stat-value' }, pos.complete ? 'done' : `${pos.round}/${state.settings.rounds}`),
     ),
-    el('div', { class: 'stat' + (pos.isMyPick ? ' stat-mine' : '') },
+    // These two are the whole reason to glance up mid-draft, so they get
+    // hero weight; the rest are reference.
+    el('div', { class: 'stat stat-hero' + (pos.isMyPick ? ' stat-mine' : '') },
       el('span', { class: 'stat-label' }, 'On the clock'),
       el('span', { class: 'stat-value' }, pos.complete ? '—' : (pos.isMyPick ? 'YOU' : teamNameForSlot(state.settings, pos.slotOnClock))),
     ),
-    el('div', { class: 'stat' },
+    el('div', { class: 'stat stat-hero' },
       el('span', { class: 'stat-label' }, 'Until your turn'),
       el('span', { class: 'stat-value' }, pos.picksUntilMyTurn == null ? '—' : String(pos.picksUntilMyTurn)),
     ),

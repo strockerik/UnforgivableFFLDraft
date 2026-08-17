@@ -4,6 +4,7 @@ import { el, mount } from './dom.js';
 import { POSITIONS } from '../config.js';
 import { state, availablePlayers, draftPlayer } from '../state.js';
 import { confirmDraft, draftTarget } from './draft-prompt.js';
+import { toast } from './toast.js';
 
 let filter = 'ALL';
 let query = '';
@@ -20,22 +21,40 @@ const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]/g, '');
  * first click sorts the helpful way rather than making you click twice —
  * lower is better for a rank, higher is better for points.
  */
+// Ordered by decision weight, not by convention. VALUE is what the engine
+// ranks on, so it sits beside the name rather than nine columns away; ECR,
+// ADP and PROJ are reference metrics and get pushed right.
 const COLUMNS = [
   { key: 'pos', label: 'POS', better: 'asc', left: true,
     tip: 'Position and rank within it. RB3 is the third-best remaining running back by consensus.' },
-  { key: 'ecr', label: 'ECR', better: 'asc',
-    tip: 'Expert Consensus Rank — overall ranking across 100+ FantasyPros experts. Lower is better.' },
+  { key: 'value', label: 'VALUE', better: 'desc', strong: true,
+    tip: 'Value over replacement (VORP): projected points minus the last startable player at that position in YOUR league. The only number that compares across positions, and what the engine ranks on.' },
   { key: 'tier', label: 'TIER', better: 'asc',
     tip: 'Consensus tier. Players within a tier are roughly interchangeable, so what matters is how many are left in one — when a tier is nearly empty, that position becomes urgent.' },
   { key: 'bye', label: 'BYE', better: 'asc',
     tip: 'Bye week. Two starters sharing a bye leaves a hole in your lineup that week.' },
+  { key: 'ecr', label: 'ECR', better: 'asc',
+    tip: 'Expert Consensus Rank — overall ranking across 100+ FantasyPros experts. Lower is better.' },
   { key: 'adp', label: 'ADP', better: 'asc',
     tip: 'Average Draft Position — where the market actually drafts him. Someone still available well past his ADP is falling to you.' },
   { key: 'projPoints', label: 'PROJ', better: 'desc',
     tip: 'Projected season fantasy points from FantasyPros. A raw total — it does not account for position scarcity, which is what VALUE adds.' },
-  { key: 'value', label: 'VALUE', better: 'desc',
-    tip: 'Value over replacement (VORP): projected points minus the last startable player at that position in YOUR league. The only number that compares across positions, and what the engine ranks on.' },
 ];
+
+// 8. One loud signal per row. Risk tags outrank praise: a drafter needs
+// warnings to pop, not compliments.
+const TAG_PRIORITY = [
+  'injury-risk', 'bust', 'committee-risk', 'rookie-uncertainty',
+  'volume-king', 'breakout', 'sleeper', 'schedule-boost', 'handcuff',
+];
+const MAX_TAGS_SHOWN = 2;
+
+function rankedTags(tags) {
+  return [...tags].sort((a, b) => {
+    const ai = TAG_PRIORITY.indexOf(a), bi = TAG_PRIORITY.indexOf(b);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+}
 
 function matches(p) {
   if (filter !== 'ALL' && p.pos !== filter) return false;
@@ -90,40 +109,51 @@ function headerRow() {
       onclick: () => setSort('name', 'asc'),
     }, 'PLAYER', arrow('name')),
     ...COLUMNS.map((c) => el('button', {
-      class: `col-head cell-${c.key}` + (sortKey === c.key ? ' sorted' : '') + (c.left ? ' col-left' : ''),
+      class: `col-head cell-${c.key}` + (sortKey === c.key ? ' sorted' : '') +
+        (c.left ? ' col-left' : '') + (c.strong ? ' col-strong' : ''),
       title: c.tip,
       onclick: () => setSort(c.key, c.better),
     }, c.label, arrow(c.key))),
   );
 }
 
-function playerRow(p, onDraft) {
+function playerRow(p, onDraft, opts = {}) {
+  // Injury collapses to a glyph; only a real absence gets colour. Full status
+  // stays in the tooltip.
+  const severe = p.injury && p.injury.status && INJ_SEVERITY.test(p.injury.status);
   const inj = p.injury && p.injury.status
     ? el('span', {
-        class: 'tag inj' + (INJ_SEVERITY.test(p.injury.status) ? ' inj-bad' : ''),
+        class: 'inj-dot' + (severe ? ' inj-bad' : ''),
         title: [p.injury.status, p.injury.detail].filter(Boolean).join(' — '),
-      }, p.injury.status)
+      }, severe ? '\u2716' : '\u25CF')
     : null;
 
-  return el('li', { class: 'player' },
+  const allTags = Array.isArray(p.tags) ? rankedTags(p.tags) : [];
+  const shownTags = allTags.slice(0, MAX_TAGS_SHOWN);
+  const hiddenTags = allTags.slice(MAX_TAGS_SHOWN);
+  const tagTitle = [p.tagNote, hiddenTags.length ? `also: ${hiddenTags.join(', ')}` : null]
+    .filter(Boolean).join(' — ');
+
+  return el('li', {
+    class: 'player' + (opts.tierBreak ? ' tier-break' : '') + (opts.isTop ? ' top-match' : ''),
+    // Whole row is the target; the "+" stays as the visual affordance.
+    onclick: (e) => { if (!e.target.closest('.inj-dot,.tag')) onDraft(p); },
+  },
     el('button', { class: 'draft-btn', title: `Draft ${p.name}`, onclick: () => onDraft(p) }, '+'),
     el('div', { class: 'player-main' },
       el('div', { class: 'player-name' }, p.name, inj),
-      el('div', { class: 'player-meta' }, p.team || '—'),
-      Array.isArray(p.tags) && p.tags.length
-        ? el('div', { class: 'player-tags', title: p.tagNote || '' },
-            p.tags.map((t) => el('span', { class: `tag strat strat-${t}` }, t)))
-        : null,
+      el('div', { class: 'player-sub' },
+        el('span', { class: 'player-meta' }, p.team || '—'),
+        shownTags.length
+          ? el('span', { class: 'player-tags', title: tagTitle },
+              shownTags.map((t) => el('span', { class: `tag strat strat-${t}` }, t)),
+              hiddenTags.length ? el('span', { class: 'tag strat-more' }, `+${hiddenTags.length}`) : null)
+          : null,
+      ),
       p.tagNote ? el('div', { class: 'player-tagnote' }, p.tagNote) : null,
     ),
     el('span', { class: 'cell cell-pos col-left' },
       el('span', { class: `tag pos pos-${p.pos}` }, p.pos + (p.posRank ?? ''))),
-    el('span', { class: 'cell cell-ecr' }, fmt(p.ecr)),
-    el('span', { class: 'cell cell-tier' }, p.tier == null ? '·' : `T${p.tier}`),
-    el('span', { class: 'cell cell-bye' }, fmt(p.bye)),
-    el('span', { class: 'cell cell-adp' },
-      fmt(p.adp, p.adp != null && !Number.isInteger(p.adp) ? 1 : 0)),
-    el('span', { class: 'cell cell-projPoints' }, fmt(p.projPoints)),
     el('span', {
       class: 'cell cell-value strong',
       title: p.valueProj != null
@@ -137,9 +167,15 @@ function playerRow(p, onDraft) {
             title: p.valueGap > 0
               ? 'Projections like him more than his consensus rank does'
               : 'Consensus rank likes him more than the projections do',
-          }, (p.valueGap > 0 ? '▲' : '▼') + Math.abs(p.valueGap))
+          }, (p.valueGap > 0 ? '\u25B2' : '\u25BC') + Math.abs(p.valueGap))
         : null,
     ),
+    el('span', { class: 'cell cell-tier' }, p.tier == null ? '\u00B7' : `T${p.tier}`),
+    el('span', { class: 'cell cell-bye' }, fmt(p.bye)),
+    el('span', { class: 'cell cell-ecr' }, fmt(p.ecr)),
+    el('span', { class: 'cell cell-adp' },
+      fmt(p.adp, p.adp != null && !Number.isInteger(p.adp) ? 1 : 0)),
+    el('span', { class: 'cell cell-projPoints' }, fmt(p.projPoints)),
   );
 }
 
@@ -159,15 +195,31 @@ function render() {
     },
   });
 
+  // Remaining count per position — the "is RB about to run dry" signal.
+  const counts = {};
+  for (const p of available) counts[p.pos] = (counts[p.pos] || 0) + 1;
+
   const filters = el('div', { class: 'filters' },
     ['ALL', ...POSITIONS].map((pos) =>
       el('button', {
         class: 'chip' + (filter === pos ? ' active' : ''),
+        title: pos === 'ALL' ? 'All positions' : `${counts[pos] || 0} ${pos} still available`,
         onclick: () => { filter = pos; render(); },
-      }, pos)));
+      }, pos,
+        el('span', { class: 'chip-count' },
+          pos === 'ALL' ? String(available.length) : String(counts[pos] || 0)))));
+
+  // Tier separators only mean something while the list is in a tier-ordered
+  // sequence. Under an alphabetical or bye sort the boundaries are noise.
+  const tierOrdered = ['value', 'ecr', 'tier', 'adp', 'projPoints'].includes(sortKey);
 
   const list = shown.length
-    ? el('ul', { class: 'player-list' }, headerRow(), shown.map((p) => playerRow(p, handleDraft)))
+    ? el('ul', { class: 'player-list' }, headerRow(), shown.map((p, i) => playerRow(p, handleDraft, {
+        tierBreak: tierOrdered && i > 0 && p.tier != null
+          && shown[i - 1].tier != null && p.tier !== shown[i - 1].tier,
+        // Show what Enter will take, so the shortcut is trustworthy.
+        isTop: i === 0 && !!query,
+      })))
     : el('p', { class: 'empty' },
         state.pool.length ? 'No players match that search.' : 'No player pool loaded — open Setup and load one.');
 
@@ -191,12 +243,13 @@ function render() {
 
 function handleDraft(player) {
   const { who } = draftTarget();
-  if (!confirmDraft(player)) return;
+  if (state.settings.confirmEveryPick && !confirmDraft(player)) return;
   const res = draftPlayer(player.id);
   if (!res.ok) { alert(res.error); return; }
   query = '';
   render();
-  announce(`${player.name} → ${who}`);
+  toast(`${player.name} → ${who}`);
+  announce(`${player.name} drafted to ${who}`);
 }
 
 function announce(msg) {
