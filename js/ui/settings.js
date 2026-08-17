@@ -70,7 +70,20 @@ function ingestJson(text, sourceLabel) {
     const label = data.season
       ? `FantasyPros ${data.season} ${data.scoring || ''} — fetched ${(data.fetchedAt || '').slice(0, 16).replace('T', ' ')}`
       : sourceLabel;
-    setPool(pool, mode, [...notes, ...warnings], { label, isSample: false });
+    // Swapping pools mid-draft is the realistic case — you notice the thin
+    // CSV is loaded after picks are already in. Offer to carry them over.
+    let preserve = false;
+    if (state.picks.length) {
+      preserve = confirm(
+        `${state.picks.length} pick(s) are already recorded.\n\n` +
+        'OK — keep them, re-matching players by name.\n' +
+        'Cancel — start the draft over with the new pool.');
+    }
+    const moved = setPool(pool, mode, [...notes, ...warnings],
+      { label, isSample: false }, { preservePicks: preserve });
+    if (preserve && moved.lost.length) {
+      notes.push(`${moved.lost.length} recorded pick(s) had no match in the new pool and were dropped: ${moved.lost.slice(0, 6).join(', ')}`);
+    }
 
     // A pool reload drops the tags that were attached to the old pool, so
     // re-apply the strategy document if one is loaded.

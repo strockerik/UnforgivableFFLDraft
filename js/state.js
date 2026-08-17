@@ -3,6 +3,7 @@
 
 import { KEYS, DEFAULT_SETTINGS } from './config.js';
 import { slotOnClock } from './snake.js';
+import { nameKey } from './players.js';
 
 const UNDO_DEPTH = 30;
 
@@ -130,17 +131,53 @@ export function setSettings(patch) {
   notify();
 }
 
-export function setPool(pool, valueMode, warnings, meta) {
+/**
+ * Install a new player pool.
+ *
+ * Picks reference player ids, which differ between sources, so by default a
+ * new pool clears the draft. `preservePicks` re-maps them by name+position
+ * instead — the case that matters is realising mid-draft that you loaded a
+ * thin CSV and want the full API data without losing the picks already
+ * recorded. Anything that cannot be re-matched is reported rather than
+ * dropped silently.
+ */
+export function setPool(pool, valueMode, warnings, meta, opts = {}) {
+  const priorPicks = state.picks;
+  const priorPool = state.pool;
+
   state.pool = pool;
   state.valueMode = valueMode;
   state.warnings = warnings || [];
   state.poolMeta = { ...meta, loadedAt: new Date().toISOString() };
-  // A new pool invalidates any draft recorded against the old one.
-  state.picks = [];
   undoStack = [];
   state.lastRec = null;
+
+  let result = { remapped: 0, lost: [] };
+  if (opts.preservePicks && priorPicks.length && priorPool.length) {
+    const index = new Map();
+    for (const p of pool) index.set(`${nameKey(p.name)}|${p.pos}`, p);
+
+    const kept = [];
+    for (const pick of priorPicks) {
+      const old = priorPool.find((x) => x.id === pick.playerId);
+      const match = old && index.get(`${nameKey(old.name)}|${old.pos}`);
+      if (match) kept.push({ ...pick, playerId: match.id });
+      else if (old) result.lost.push(old.name);
+    }
+    // Pick numbers must stay contiguous or the snake math desynchronises.
+    state.picks = kept.map((pick, i) => ({
+      ...pick,
+      pickNo: i + 1,
+      teamSlot: slotOnClock(i + 1, state.settings.teams),
+    }));
+    result.remapped = state.picks.length;
+  } else {
+    state.picks = [];
+  }
+
   save();
   notify();
+  return result;
 }
 
 /** Store the strategy document's prose half; tags live on the players. */

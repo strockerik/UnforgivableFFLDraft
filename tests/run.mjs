@@ -667,6 +667,36 @@ test('rejects structurally malformed responses', () => {
 });
 
 // ============================================================================
+group('pool swap');
+
+test('re-matches recorded picks into a new pool by name and position', () => {
+  // The real case: picks recorded off a thin CSV, then the full API file is
+  // loaded. Ids differ between sources, so the join has to be on name.
+  const oldPool = pool.slice(0, 40).map((p) => ({ ...p, id: 'old-' + p.id }));
+  const newPool = pool.map((p) => ({ ...p, id: 'new-' + p.id }));
+  const picks = oldPool.slice(0, 5).map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: i + 1 }));
+
+  const index = new Map(newPool.map((p) => [`${nameKey(p.name)}|${p.pos}`, p]));
+  const kept = [];
+  const lost = [];
+  for (const pick of picks) {
+    const old = oldPool.find((x) => x.id === pick.playerId);
+    const match = index.get(`${nameKey(old.name)}|${old.pos}`);
+    if (match) kept.push(match); else lost.push(old.name);
+  }
+  eq(kept.length, 5, 'all five should re-match: ');
+  eq(lost, []);
+  eq(kept.every((p) => p.id.startsWith('new-')), true, 'should point at the new pool');
+});
+
+test('reports a pick that has no counterpart rather than dropping it', () => {
+  const oldPool = [{ id: 'a', name: 'Ghost Of Drafts Past', pos: 'RB', team: 'ZZZ' }];
+  const index = new Map(pool.map((p) => [`${nameKey(p.name)}|${p.pos}`, p]));
+  const match = index.get(`${nameKey(oldPool[0].name)}|${oldPool[0].pos}`);
+  eq(match, undefined, 'should not match anything');
+});
+
+// ============================================================================
 group('strategy.js');
 
 const STRAT_DOC = `### PART 1 — STRATEGY

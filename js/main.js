@@ -67,6 +67,20 @@ function renderBanner() {
     bits.push(el('div', { class: 'banner-note' },
       `${VALUE_MODE_LABEL.surrogate}. Values are a modeled ordering signal derived from positional rank, not projected points.`));
   }
+  // A CSV pool leaves TIER/ADP/PROJ empty across the board. Easy to miss,
+  // because the app otherwise looks like it is working.
+  if (state.pool.length) {
+    const missing = ['tier', 'adp', 'projPoints']
+      .filter((f) => state.pool.filter((p) => p[f] != null).length < state.pool.length * 0.2);
+    if (missing.length) {
+      const label = { tier: 'tiers', adp: 'ADP', projPoints: 'projections' };
+      bits.push(el('div', { class: 'banner-note' },
+        `This pool has no ${missing.map((m) => label[m]).join(', ')} — those columns will show "·" and `,
+        `tier-cliff detection is off. `,
+        el('strong', {}, 'Load data/players.json in Setup'),
+        ' for the full FantasyPros data (878 players, all columns).'));
+    }
+  }
   mount(banner, bits);
   banner.hidden = bits.length === 0;
 }
