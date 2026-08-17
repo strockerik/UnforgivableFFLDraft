@@ -42,6 +42,12 @@ function playerRow(p, onDraft) {
         el('span', { class: `tag pos pos-${p.pos}` }, p.pos + (p.posRank ?? '')),
         inj,
       ),
+      Array.isArray(p.tags) && p.tags.length
+        ? el('div', { class: 'player-tags', title: p.tagNote || '' },
+            p.tags.map((t) => el('span', { class: `tag strat strat-${t}` }, t)),
+            p.tagConfidence ? el('span', { class: 'tag strat-conf' }, p.tagConfidence) : null)
+        : null,
+      p.tagNote ? el('div', { class: 'player-tagnote' }, p.tagNote) : null,
       el('div', { class: 'player-meta' },
         p.team || '—',
         p.bye != null ? ` · Bye ${p.bye}` : '',

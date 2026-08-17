@@ -11,6 +11,7 @@ import { replacementLevels, computeValues, biggestDisagreements } from '../js/vo
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
 import { validateRecommendation, recommend } from '../js/claude.js';
+import { parseStrategyDoc, applyTags } from '../js/strategy.js';
 import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
 
 // --- tiny harness -----------------------------------------------------------
@@ -663,6 +664,109 @@ test('rejects structurally malformed responses', () => {
   eq(validateRecommendation({}, allow).ok, false);
   eq(validateRecommendation({ ...good, alternatives: 'nope' }, allow).ok, false);
   eq(validateRecommendation({ ...good, positional_advice: 42 }, allow).ok, false);
+});
+
+// ============================================================================
+group('strategy.js');
+
+const STRAT_DOC = `### PART 1 — STRATEGY
+
+## Draft philosophy for this league
+Six-point passing touchdowns make an elite QB a top-3 asset here.
+
+### PART 2 — PLAYER TAGS
+
+\`\`\`json
+{
+  "generated": "2026-08-16",
+  "players": [
+    { "name": "RB Sample 01", "pos": "RB", "team": "PIT", "tags": ["volume-king"],
+      "confidence": "high", "note": "Every-down back." },
+    { "name": "WR Sample 11 Jr.", "pos": "WR", "tags": ["sleeper", "not-a-real-tag"],
+      "confidence": "medium", "note": "Suffix name, and one bogus tag." },
+    { "name": "Nobody At All", "pos": "TE", "team": "ZZZ", "tags": ["bust"],
+      "confidence": "low", "note": "Should not match anything." }
+  ]
+}
+\`\`\`
+`;
+
+test('splits prose from the player-tag JSON block', () => {
+  const { strategyText, tags } = parseStrategyDoc(STRAT_DOC);
+  ok(strategyText.includes('Six-point passing touchdowns'), 'prose missing');
+  eq(strategyText.includes('json'), false, 'the JSON block leaked into the prose: ');
+  eq(tags.length, 3);
+});
+
+test('drops unrecognized tags but keeps the entry', () => {
+  const { tags, warnings } = parseStrategyDoc(STRAT_DOC);
+  const wr = tags.find((t) => t.name.startsWith('WR Sample 11'));
+  eq(wr.tags, ['sleeper']);
+  ok(warnings.some((w) => w.includes('not-a-real-tag')), 'no warning for the bogus tag');
+});
+
+test('survives a malformed JSON block without losing the prose', () => {
+  const broken = STRAT_DOC.replace('"generated"', '"generated" oops');
+  const { strategyText, tags, warnings } = parseStrategyDoc(broken);
+  ok(strategyText.includes('Six-point'), 'prose should still load');
+  eq(tags, []);
+  ok(warnings.some((w) => /invalid/i.test(w)), 'expected an invalid-JSON warning');
+});
+
+test('attaches tags to the pool and reports what did not match', () => {
+  const p2 = pool.map((p) => ({ ...p }));
+  const { tags } = parseStrategyDoc(STRAT_DOC);
+  const { matched, unmatched } = applyTags(p2, tags);
+  eq(matched, 2, 'expected the two real players to match: ');
+  eq(unmatched.length, 1);
+  eq(unmatched[0].name, 'Nobody At All');
+  const rb = p2.find((p) => p.name === 'RB Sample 01');
+  eq(rb.tags, ['volume-king']);
+  eq(rb.tagNote, 'Every-down back.');
+});
+
+test('matches a suffixed name the same way the player merge does', () => {
+  const p2 = pool.map((p) => ({ ...p }));
+  applyTags(p2, parseStrategyDoc(STRAT_DOC).tags);
+  const wr = p2.find((p) => p.name === 'WR Sample 11 Jr.');
+  eq(wr.tags, ['sleeper']);
+});
+
+test('reloading replaces tags rather than accumulating them', () => {
+  // The document gets revised repeatedly before draft day, so a reload must
+  // not leave stale tags behind on players dropped from the new version.
+  const p2 = pool.map((p) => ({ ...p }));
+  applyTags(p2, parseStrategyDoc(STRAT_DOC).tags);
+  ok(p2.find((p) => p.name === 'RB Sample 01').tags, 'first load did not attach');
+
+  applyTags(p2, [{ name: 'WR Sample 11 Jr.', pos: 'WR', tags: ['bust'], note: 'changed my mind' }]);
+  eq(p2.find((p) => p.name === 'RB Sample 01').tags, undefined, 'stale tag survived a reload: ');
+  eq(p2.find((p) => p.name === 'WR Sample 11 Jr.').tags, ['bust']);
+});
+
+test('an empty tag list clears every tag', () => {
+  const p2 = pool.map((p) => ({ ...p }));
+  applyTags(p2, parseStrategyDoc(STRAT_DOC).tags);
+  applyTags(p2, []);
+  eq(p2.filter((p) => p.tags).length, 0);
+});
+
+test('carries tags into the evidence packet, and drops them when drafted', () => {
+  const p2 = pool.map((p) => ({ ...p }));
+  applyTags(p2, parseStrategyDoc(STRAT_DOC).tags);
+  const st = { settings, pool: p2, picks: [], valueMode: 'surrogate' };
+  const ev = evaluate(st, p2);
+  const e = buildEvidence(st, p2, ev);
+  const tagged = Object.values(e.board.topAvailableByPosition).flat().filter((x) => x.tags);
+  ok(tagged.length > 0, 'no tagged player reached the packet');
+  ok(tagged[0].tagNote, 'tagNote missing from the packet');
+
+  // Draft the tagged player; he must vanish from the packet entirely.
+  const rb = p2.find((p) => p.name === 'RB Sample 01');
+  const st2 = { ...st, picks: [{ pickNo: 1, playerId: rb.id, teamSlot: 1 }] };
+  const avail2 = p2.filter((p) => p.id !== rb.id);
+  const e2 = buildEvidence(st2, avail2, evaluate(st2, avail2));
+  eq(e2.availablePlayerAllowlist.includes('RB Sample 01'), false);
 });
 
 // ============================================================================

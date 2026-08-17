@@ -4,10 +4,11 @@ import { el, mount } from './dom.js';
 import { MODELS, EFFORTS, POSITIONS } from '../config.js';
 import {
   state, setSettings, setPool, refreshPool, getApiKey, setApiKey,
-  getPassphrase, setPassphrase, resetDraft, hardReset,
+  getPassphrase, setPassphrase, setStrategy, resetDraft, hardReset,
 } from '../state.js';
 import { readFileText } from '../csv.js';
 import { parseRankings, parseAdp, mergeAdp, finalizePool } from '../players.js';
+import { parseStrategyDoc, applyTags } from '../strategy.js';
 import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
 import { myPicks } from '../snake.js';
 
@@ -80,6 +81,55 @@ async function loadJson() {
       '— and note fetch() needs an http:// origin, so run python3 -m http.server 8000.',
       'error'
     );
+  }
+}
+
+/**
+ * Load (or reload) the strategy document.
+ *
+ * Deliberately does NOT go through setPool, which clears the draft. Tags are
+ * applied to the existing pool in place so this is safe to run mid-draft —
+ * the document is expected to be revised repeatedly before draft day.
+ */
+function ingestStrategy(text, label) {
+  const { strategyText, tags, warnings } = parseStrategyDoc(text);
+  if (!strategyText && !tags.length) {
+    setStatus(`No usable content in ${label}.`, 'error');
+    return;
+  }
+
+  let matched = 0, unmatched = [];
+  if (state.pool.length && tags.length) {
+    ({ matched, unmatched } = applyTags(state.pool, tags));
+    refreshPool(state.valueMode, state.warnings);
+  }
+
+  setStrategy(strategyText, {
+    label,
+    tagCount: tags.length,
+    matched,
+    unmatched: unmatched.map((t) => `${t.name} (${t.pos}${t.team ? ' ' + t.team : ''})`),
+    warnings,
+    loadedAt: new Date().toISOString(),
+  });
+
+  const poolNote = state.pool.length
+    ? `${matched} of ${tags.length} tags attached`
+    : `${tags.length} tags parsed — load a player pool to attach them`;
+  setStatus(`Strategy loaded from ${label}. ${poolNote}.`,
+    unmatched.length || warnings.length ? 'info' : 'ok');
+}
+
+async function loadStrategyFile() {
+  try {
+    const res = await fetch(`data/strategy.md?_=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    ingestStrategy(await res.text(), 'data/strategy.md');
+  } catch (err) {
+    setStatus(
+      `Could not load data/strategy.md (${err.message}). Save your document there, ` +
+      'or use the file picker. Note fetch() needs an http:// origin — run python3 -m http.server 8000.',
+      'error');
   }
 }
 
@@ -252,7 +302,56 @@ function render() {
     ),
 
     el('section', { class: 'setup-group' },
-      el('h3', {}, '3. Draft order & team names'),
+      el('h3', {}, '3. Strategy document'),
+      el('p', { class: 'field-hint' },
+        'Prose guidance goes into the cached system prompt; player tags attach to the board. ',
+        'Reload any time — it is safe mid-draft and replaces the previous version rather than adding to it.'),
+      el('div', { class: 'row' },
+        el('button', { class: 'btn primary-outline', onclick: loadStrategyFile }, 'Reload data/strategy.md'),
+        field('or pick a file', el('input', {
+          type: 'file', accept: '.md,.txt,text/markdown,text/plain',
+          onchange: async (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            ingestStrategy(await readFileText(f), f.name);
+          },
+        })),
+        state.strategyText
+          ? el('button', {
+              class: 'btn',
+              onclick: () => {
+                if (!confirm('Remove the strategy document and clear its tags?')) return;
+                if (state.pool.length) {
+                  applyTags(state.pool, []);
+                  refreshPool(state.valueMode, state.warnings);
+                }
+                setStrategy('', null);
+                setStatus('Strategy document cleared.', 'ok');
+              },
+            }, 'Clear')
+          : null,
+      ),
+      state.strategyMeta
+        ? el('p', { class: 'computed' },
+            el('strong', {}, 'Loaded: '),
+            `${state.strategyMeta.label} — ${state.strategyMeta.matched}/${state.strategyMeta.tagCount} tags attached, `,
+            `${Math.round((state.strategyText || '').split(/\s+/).length)} words of guidance `,
+            `(${(state.strategyMeta.loadedAt || '').slice(11, 16)})`)
+        : el('p', { class: 'field-hint' }, 'No strategy document loaded.'),
+      state.strategyMeta && state.strategyMeta.unmatched && state.strategyMeta.unmatched.length
+        ? el('details', { class: 'warnings' },
+            el('summary', {}, `${state.strategyMeta.unmatched.length} tag(s) matched no player — check the spelling`),
+            el('ul', {}, state.strategyMeta.unmatched.map((u) => el('li', {}, u))))
+        : null,
+      state.strategyMeta && state.strategyMeta.warnings && state.strategyMeta.warnings.length
+        ? el('details', { class: 'warnings' },
+            el('summary', {}, `${state.strategyMeta.warnings.length} parse note(s)`),
+            el('ul', {}, state.strategyMeta.warnings.map((w) => el('li', {}, w))))
+        : null,
+    ),
+
+    el('section', { class: 'setup-group' },
+      el('h3', {}, '4. Draft order & team names'),
       el('p', { class: 'field-hint' },
         'Type over any name to rename a team, and use ↑↓ to put them in the ',
         'order drawn on draft day. Click "set" on your own team — your slot ',
@@ -306,7 +405,7 @@ function render() {
     ),
 
     el('section', { class: 'setup-group' },
-      el('h3', {}, '4. Claude'),
+      el('h3', {}, '5. Claude'),
       field('Connection', el('select', {
         onchange: (e) => setSettings({ authMode: e.target.value }),
       }, [
@@ -351,7 +450,7 @@ function render() {
     ),
 
     el('section', { class: 'setup-group danger' },
-      el('h3', {}, '5. Reset'),
+      el('h3', {}, '6. Reset'),
       el('div', { class: 'row' },
         el('button', { class: 'btn', onclick: () => { if (confirm('Clear all picks? The player pool stays loaded.')) resetDraft(); } }, 'Reset draft'),
         el('button', { class: 'btn', onclick: () => { if (confirm('Erase everything, including the pool and API key?')) hardReset(); } }, 'Erase everything'),
@@ -384,4 +483,9 @@ export async function autoLoad() {
     const res = await fetch('data/players.json', { method: 'HEAD' });
     if (res.ok) await loadJson();
   } catch { /* no players.json yet — the setup panel explains how to make one */ }
+
+  try {
+    const res = await fetch('data/strategy.md', { method: 'HEAD' });
+    if (res.ok) await loadStrategyFile();
+  } catch { /* no strategy doc — optional */ }
 }

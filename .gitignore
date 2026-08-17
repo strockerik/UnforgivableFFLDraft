@@ -39,3 +39,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local scratch copy — data/strategy.md is the canonical path the app loads.
+draft strategy skill

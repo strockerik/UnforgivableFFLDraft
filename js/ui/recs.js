@@ -157,6 +157,7 @@ async function askClaude(evaluation, available) {
       model: state.settings.model,
       effort: state.settings.effort,
       evidence,
+      strategyText: state.strategyText,
       signal: inflight.signal,
     });
 

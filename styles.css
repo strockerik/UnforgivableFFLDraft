@@ -280,3 +280,14 @@ body {
 .value-gap { display: block; font-size: 0.62rem; font-weight: 700; line-height: 1; margin-top: 0.1rem; }
 .gap-up { color: var(--good); }
 .gap-down { color: var(--bad); }
+
+/* ---- strategy-document tags ---- */
+.player-tags { display: flex; gap: 0.2rem; flex-wrap: wrap; margin: 0.15rem 0; }
+.player-tagnote { font-size: 0.72rem; color: var(--muted); font-style: italic; margin-bottom: 0.1rem; }
+.tag.strat { border: 0; color: #fff; text-transform: none; }
+.strat-sleeper, .strat-breakout, .strat-volume-king { background: #2f9e6e; }
+.strat-schedule-boost { background: #3b7fd4; }
+.strat-bust, .strat-injury-risk { background: #c0413b; }
+.strat-committee-risk, .strat-rookie-uncertainty { background: #b8860b; }
+.strat-handcuff { background: #6b7280; }
+.tag.strat-conf { background: transparent; border: 1px solid var(--line); color: var(--muted); }

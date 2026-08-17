@@ -82,6 +82,17 @@ HARD RULES
 3. Give concrete reasons grounded in the numbers you were given — value, tier counts, ADP gaps, replacement levels, and any injury or news fields present. Do not invent statistics, injury news, or projections that are not in the packet.
 4. Be concise. Two or three sentences per reason.`;
 
+function userStrategyBlock(text) {
+  return `THE USER'S OWN STRATEGY DOCUMENT
+What follows was written for this specific league and reflects how the user wants to draft. Treat it as strong guidance about approach and preference.
+
+Two limits on it. First, it is prose written ahead of the draft; the evidence packet is live. Where the document's general advice conflicts with the computed value, tier counts, or availability in the packet, the packet wins — say so briefly rather than silently picking one. Second, any player claim in it is dated commentary, not fact; the \`tags\` and \`tagNote\` fields already carry that per-player context onto the board, so do not name a player purely because this document mentions him.
+
+--- BEGIN USER STRATEGY ---
+${text}
+--- END USER STRATEGY ---`;
+}
+
 function leagueContext(evidence) {
   const l = evidence.league;
   const lineup = Object.entries(l.startingLineup).map(([k, v]) => `${v}${k}`).join(', ');
@@ -106,7 +117,7 @@ export class ClaudeError extends Error {
  */
 export async function recommend({
   authMode = 'direct', apiKey, proxyUrl, passphrase,
-  model, effort, evidence, signal,
+  model, effort, evidence, strategyText, signal,
 }) {
   const viaProxy = authMode === 'proxy';
 
@@ -134,6 +145,10 @@ export async function recommend({
     max_tokens: 8000, // thinking counts toward this cap on Opus 5 — leave room
     system: [
       { type: 'text', text: STRATEGY },
+      // The user's own strategy document, when loaded. Static for the whole
+      // draft, so it sits inside the cached prefix and costs ~10% per call
+      // after the first.
+      ...(strategyText ? [{ type: 'text', text: userStrategyBlock(strategyText) }] : []),
       // Stable for the whole draft, so the prefix caches. Volatile per-pick
       // content goes in the user turn, after the breakpoint.
       { type: 'text', text: leagueContext(evidence), cache_control: { type: 'ephemeral' } },

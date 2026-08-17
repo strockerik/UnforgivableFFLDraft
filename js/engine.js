@@ -254,6 +254,13 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       b.valueFromConsensusRank = Math.round(p.valueModel);
       b.projectionVsConsensusGap = p.valueGap;
     }
+    // Strategy-document tags travel with the player, so they vanish from the
+    // packet the moment he is drafted.
+    if (Array.isArray(p.tags) && p.tags.length) {
+      b.tags = p.tags;
+      if (p.tagNote) b.tagNote = p.tagNote;
+      if (p.tagConfidence) b.tagConfidence = p.tagConfidence;
+    }
     // Injury and news only ride along when present, so a pool without them
     // costs nothing in the packet.
     if (p.injury && (p.injury.status || p.injury.detail)) {

@@ -15,6 +15,8 @@ export const state = {
   valueMode: null,
   poolMeta: { label: null, isSample: false, loadedAt: null },
   warnings: [],
+  strategyText: '',   // Part 1 of data/strategy.md, appended to the system prompt
+  strategyMeta: null, // { matched, unmatched, loadedAt }
   picks: [],          // [{ pickNo, playerId, teamSlot }]
   lastRec: null,      // last recommendation rendered
 };
@@ -36,6 +38,8 @@ function save() {
     localStorage.setItem(KEYS.draft, JSON.stringify({
       picks: state.picks,
       poolMeta: state.poolMeta,
+      strategyText: state.strategyText,
+      strategyMeta: state.strategyMeta,
     }));
     if (state.pool.length) {
       localStorage.setItem(KEYS.pool, JSON.stringify({
@@ -68,6 +72,8 @@ export function load() {
       const parsed = JSON.parse(d);
       state.picks = parsed.picks || [];
       state.poolMeta = parsed.poolMeta || state.poolMeta;
+      state.strategyText = parsed.strategyText || '';
+      state.strategyMeta = parsed.strategyMeta || null;
     }
   } catch (err) {
     console.warn('Could not restore saved state:', err);
@@ -132,6 +138,15 @@ export function setPool(pool, valueMode, warnings, meta) {
   // A new pool invalidates any draft recorded against the old one.
   state.picks = [];
   undoStack = [];
+  state.lastRec = null;
+  save();
+  notify();
+}
+
+/** Store the strategy document's prose half; tags live on the players. */
+export function setStrategy(text, meta) {
+  state.strategyText = text || '';
+  state.strategyMeta = meta || null;
   state.lastRec = null;
   save();
   notify();
