@@ -9,11 +9,13 @@ import {
 import { readFileText } from '../csv.js';
 import { parseRankings, parseAdp, mergeAdp, finalizePool } from '../players.js';
 import { parseStrategyDoc, applyTags } from '../strategy.js';
+import { fetchPool } from '../fantasypros.js';
 import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
 import { myPicks } from '../snake.js';
 
 let root = null;
 let status = null;
+let refreshing = false;
 
 function setStatus(msg, kind = 'info') {
   status = { msg, kind };
@@ -163,6 +165,64 @@ async function loadStrategyFile() {
   }
 }
 
+/**
+ * Pull a fresh board from FantasyPros via the Worker.
+ *
+ * Never destructive: if the fetch fails, the cached pool stays exactly as it
+ * was. Losing the board on draft morning because a network call failed would
+ * be far worse than showing yesterday's numbers.
+ */
+export async function refreshFromFantasyPros(manual = false) {
+  if (refreshing) return;
+  const { proxyUrl, scoring } = state.settings;
+  const passphrase = getPassphrase();
+
+  if (!proxyUrl || !passphrase) {
+    if (manual) {
+      setStatus('Set the Worker URL and passphrase under Setup → Claude first — ' +
+        'the FantasyPros relay uses the same Worker.', 'error');
+    }
+    return;
+  }
+
+  refreshing = true;
+  setStatus('Fetching from FantasyPros…');
+  try {
+    const scoringCode = scoring === 'PPR' ? 'PPR' : scoring === 'Standard' ? 'STD' : 'HALF';
+    const data = await fetchPool({ proxyUrl, passphrase, season: '2026', scoring: scoringCode });
+
+    const { pool, warnings } = finalizePool(data.players);
+    const { mode } = computeValues(pool, state.settings);
+
+    let preserve = false;
+    if (state.picks.length) {
+      preserve = confirm(
+        `${state.picks.length} pick(s) are recorded.\n\n` +
+        'OK — keep them, re-matching players by name.\n' +
+        'Cancel — start over with the refreshed board.');
+    }
+    const moved = setPool(pool, mode, [...data.notes, ...warnings], {
+      label: `FantasyPros ${data.season} ${data.scoring} — ${data.fetchedAt.slice(11, 16)} today`,
+      isSample: false,
+      coverage: data.coverage,
+      fetchedAt: data.fetchedAt,
+    }, { preservePicks: preserve });
+
+    if (state.strategyText || state.strategyMeta) loadStrategyFile();
+    setStatus(`Refreshed: ${pool.length} players`
+      + (moved.lost.length ? `, ${moved.lost.length} recorded pick(s) unmatched` : '')
+      + `. ${VALUE_MODE_LABEL[mode]}.`, 'ok');
+  } catch (err) {
+    setStatus(`Could not refresh (${err.message}). `
+      + (state.pool.length
+        ? 'Keeping the board already loaded — nothing was lost.'
+        : 'No board is loaded; try an offline fallback below.'), 'error');
+  } finally {
+    refreshing = false;
+    render();
+  }
+}
+
 async function loadSample() {
   try {
     const [r, a] = await Promise.all([
@@ -260,60 +320,45 @@ function render() {
   mount(root,
     el('section', { class: 'setup-group' },
       el('h3', {}, '1. Player data'),
-      el('div', { class: 'row' },
-        field('Rankings CSV', el('input', {
-          type: 'file', accept: '.csv,text/csv',
-          onchange: async (e) => {
-            const f = e.target.files[0];
-            if (!f) return;
-            setStatus('Parsing…');
-            await ingest(await readFileText(f), null, { label: f.name, isSample: false });
-          },
-        }), 'FantasyPros consensus rankings export'),
-        field('ADP CSV (optional)', el('input', {
-          type: 'file', accept: '.csv,text/csv',
-          onchange: async (e) => {
-            const f = e.target.files[0];
-            if (!f || !state.pool.length) {
-              setStatus('Load the rankings file first, then add ADP.', 'error');
-              return;
-            }
-            const text = await readFileText(f);
-            const { rows, warnings } = parseAdp(text);
-            const { matched, warnings: mw } = mergeAdp(state.pool, rows);
-            const { mode } = computeValues(state.pool, state.settings);
-            refreshPool(mode, [...state.warnings, ...warnings, ...mw,
-              `Merged ADP for ${matched} of ${rows.length} rows.`]);
-            setStatus(`Merged ADP for ${matched} of ${rows.length} rows.`, 'ok');
-          },
-        }), 'Merged on name + team'),
-      ),
-      el('div', { class: 'row' },
-        el('button', { class: 'btn primary-outline', onclick: loadJson }, 'Load data/players.json'),
-        field('or upload players.json', el('input', {
-          type: 'file', accept: '.json,application/json',
-          onchange: async (e) => {
-            const f = e.target.files[0];
-            if (!f) return;
-            ingestJson(await readFileText(f), f.name);
-          },
-        }), 'For the published site, where the licensed data is not committed'),
-        el('button', { class: 'btn', onclick: loadSample }, 'Load synthetic sample data'),
-      ),
       el('p', { class: 'field-hint' },
-        'players.json comes from tools/fetch_fantasypros.py — the FantasyPros API blocks browser calls (no CORS), ',
-        'so that script fetches it on your machine and writes the file here.'),
-      state.poolMeta.isSample
-        ? el('p', { class: 'warn-inline' },
-            'Sample data is SYNTHETIC — invented names and numbers for testing the app. Do not draft from it.')
-        : null,
+        'Pulled from the FantasyPros API through your Cloudflare Worker, and refreshed ',
+        'automatically when the app opens if the cached copy is more than ',
+        String(s.autoRefreshHours), ' hours old. FantasyPros blocks direct browser calls, ',
+        'so the Worker relays it.'),
+      el('div', { class: 'row' },
+        el('button', {
+          class: 'btn primary-outline',
+          disabled: refreshing,
+          onclick: () => refreshFromFantasyPros(true),
+        }, refreshing ? 'Refreshing…' : 'Refresh from FantasyPros now'),
+        field('Auto-refresh after', el('select', {
+          onchange: (e) => setSettings({ autoRefreshHours: Number(e.target.value) }),
+        }, [0, 1, 6, 24].map((h) =>
+          el('option', { value: h, selected: s.autoRefreshHours === h },
+            h === 0 ? 'every open' : `${h}h`))), 'How stale the cache may get'),
+      ),
+      state.poolMeta.label
+        ? el('p', { class: 'computed' },
+            el('strong', {}, `${state.pool.length} players `), '· ', state.poolMeta.label,
+            state.poolMeta.coverage
+              ? ` · tier ${state.poolMeta.coverage.tier} · adp ${state.poolMeta.coverage.adp} · proj ${state.poolMeta.coverage.proj}`
+              : '')
+        : el('p', { class: 'field-hint' }, 'No player data loaded yet.'),
       status ? el('p', { class: `status status-${status.kind}` }, status.msg) : null,
       state.warnings.length
         ? el('details', { class: 'warnings' },
-            el('summary', {}, `${state.warnings.length} parse note(s)`),
-            el('ul', {}, state.warnings.map((w) => el('li', {}, w))),
-          )
+            el('summary', {}, `${state.warnings.length} note(s)`),
+            el('ul', {}, state.warnings.map((w) => el('li', {}, w))))
         : null,
+      el('details', { class: 'warnings' },
+        el('summary', {}, 'Offline fallbacks'),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn', onclick: loadJson }, 'Load data/players.json'),
+          el('button', { class: 'btn', onclick: loadSample }, 'Load synthetic sample data'),
+        ),
+        el('p', { class: 'field-hint' },
+          'Only needed if the Worker is unreachable. players.json comes from ',
+          'tools/fetch_fantasypros.py; the sample data is invented and marked as such.')),
     ),
 
     el('section', { class: 'setup-group' },
@@ -521,15 +566,29 @@ export function initSettings(container) {
 
 /** Called once at startup: pick up data/players.json if it's already there. */
 export async function autoLoad() {
-  if (state.pool.length) return;          // restored from localStorage already
-  if (location.protocol === 'file:') return; // fetch() is blocked on file://
-  try {
-    const res = await fetch('data/players.json', { method: 'HEAD' });
-    if (res.ok) await loadJson();
-  } catch { /* no players.json yet — the setup panel explains how to make one */ }
+  const s = state.settings;
+  const fetchedAt = state.poolMeta && state.poolMeta.fetchedAt;
+  const ageHours = fetchedAt ? (Date.now() - Date.parse(fetchedAt)) / 3.6e6 : Infinity;
+  const stale = !state.pool.length || ageHours >= (s.autoRefreshHours ?? 6);
 
-  try {
-    const res = await fetch('data/strategy.md', { method: 'HEAD' });
-    if (res.ok) await loadStrategyFile();
-  } catch { /* no strategy doc — optional */ }
+  // The API is the source of truth; the local file is a fallback for when the
+  // Worker is unreachable.
+  if (stale && s.proxyUrl && getPassphrase()) {
+    await refreshFromFantasyPros(false);
+  }
+
+  if (location.protocol === 'file:') return; // fetch() is blocked on file://
+  if (!state.pool.length) {
+    try {
+      const res = await fetch('data/players.json', { method: 'HEAD' });
+      if (res.ok) await loadJson();
+    } catch { /* no local copy either — the panel explains the options */ }
+  }
+
+  if (!state.strategyText) {
+    try {
+      const res = await fetch('data/strategy.md', { method: 'HEAD' });
+      if (res.ok) await loadStrategyFile();
+    } catch { /* optional */ }
+  }
 }

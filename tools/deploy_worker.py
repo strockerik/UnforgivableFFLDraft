@@ -25,6 +25,7 @@ import json
 import mimetypes
 import os
 import re
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -36,6 +37,25 @@ import credentials  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = "https://api.cloudflare.com/client/v4"
+
+
+def _ssl_context():
+    """Python installs where "Install Certificates.command" was never run have
+    no CA bundle and fail every HTTPS call. Fall back to the system bundle
+    rather than disabling verification, which would be the wrong fix."""
+    try:
+        ctx = ssl.create_default_context()
+        if ctx.cert_store_stats().get("x509_ca", 0) > 0:
+            return ctx
+    except Exception:
+        pass
+    for candidate in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem"):
+        if os.path.exists(candidate):
+            return ssl.create_default_context(cafile=candidate)
+    return ssl.create_default_context()
+
+
+SSL_CTX = _ssl_context()
 WORKER_FILE = os.path.join(ROOT, "worker", "worker.js")
 COMPAT_DATE = "2026-01-01"
 
@@ -69,7 +89,7 @@ def call(method, path, token, body=None, content_type="application/json", raw=Fa
     if data is not None:
         req.add_header("Content-Type", content_type)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=SSL_CTX) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         try:
@@ -200,7 +220,7 @@ def smoke_test(url):
                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
                                  "Chrome/131.0.0.0 Safari/537.36")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=SSL_CTX) as resp:
             return resp.status, resp.read().decode()[:200]
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:200]
@@ -243,7 +263,18 @@ def main():
             sys.exit("Use a passphrase of at least 12 characters — this is the only real gate.")
         put_secret(token, account, args.name, "ANTHROPIC_API_KEY", api_key.strip())
         put_secret(token, account, args.name, "APP_PASSPHRASE", passphrase.strip())
-        print("  both secrets set")
+        print("  Anthropic key and passphrase set")
+
+        # Optional: enables the /fantasypros relay, which is what lets the app
+        # refresh its own board instead of relying on a script being run.
+        fp = credentials.resolve(
+            env_vars=("FANTASYPROS_API_KEY",), service="ffl-fantasypros",
+            prompt="  FANTASYPROS_API_KEY (blank to skip): ", required=False) or ""
+        if fp.strip():
+            put_secret(token, account, args.name, "FANTASYPROS_API_KEY", fp.strip())
+            print("  FantasyPros key set — the app can refresh its own data")
+        else:
+            print("  no FantasyPros key; the /fantasypros relay stays disabled")
 
     print("\nEnabling workers.dev route…")
     sub = enable_subdomain(token, account, args.name)

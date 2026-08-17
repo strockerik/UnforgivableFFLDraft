@@ -22,6 +22,11 @@
  * Required secrets (Settings → Variables → Add secret, i.e. encrypted):
  *   ANTHROPIC_API_KEY   your sk-ant-... key
  *   APP_PASSPHRASE      any long random string; you type this into the app
+ *   FANTASYPROS_API_KEY optional. Enables GET /fantasypros, which lets the app
+ *                       refresh its own player data on open. FantasyPros sends
+ *                       no CORS headers, so the page cannot call it directly;
+ *                       this route is the only way the browser gets fresh data
+ *                       without a manual script run.
  *
  * Optional plaintext variables:
  *   ALLOWED_ORIGINS     comma-separated. Default: the GitHub Pages origin
@@ -32,6 +37,14 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
+const FP_BASE = 'https://api.fantasypros.com/public/v2/json';
+
+// Only these FantasyPros paths may be requested. Without an allowlist this
+// route would be an open proxy for the key — anyone with the passphrase could
+// pull any endpoint, and a path is far easier to guess than a model name.
+const FP_ALLOWED = new Set([
+  'consensus-rankings', 'projections', 'players', 'injuries', 'news',
+]);
 
 const DEFAULT_ORIGINS = [
   'https://strockerik.github.io',
@@ -64,7 +77,7 @@ function corsHeaders(origin, allowed) {
   const ok = origin && allowed.includes(origin);
   return {
     'Access-Control-Allow-Origin': ok ? origin : allowed[0],
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type, x-app-passphrase',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -77,6 +90,63 @@ const json = (obj, status, headers) =>
     headers: { 'content-type': 'application/json', ...headers },
   });
 
+/**
+ * Relay one FantasyPros endpoint. The browser cannot call this API itself —
+ * no Access-Control-Allow-* headers and no OPTIONS route — so without this
+ * the app depends on someone remembering to run a script before draft day.
+ */
+async function fantasyPros(url, env, cors) {
+  if (!env.FANTASYPROS_API_KEY) {
+    return json({
+      error: { message: 'Worker has no FantasyPros key. Add FANTASYPROS_API_KEY as a secret.' },
+    }, 501, cors);
+  }
+
+  const endpoint = url.searchParams.get('endpoint');
+  if (!FP_ALLOWED.has(endpoint)) {
+    return json({
+      error: { message: `Unknown endpoint. Permitted: ${[...FP_ALLOWED].join(', ')}` },
+    }, 400, cors);
+  }
+
+  const season = (url.searchParams.get('season') || '').replace(/[^0-9]/g, '') || '2026';
+  const seasonScoped = endpoint === 'consensus-rankings' || endpoint === 'projections';
+  const target = new URL(`${FP_BASE}/nfl/${seasonScoped ? season + '/' : ''}${endpoint}`);
+
+  // Copy through only the parameters FantasyPros understands, so a caller
+  // cannot smuggle anything into the upstream request.
+  for (const k of ['position', 'scoring', 'type', 'week', 'limit']) {
+    const v = url.searchParams.get(k);
+    if (v) target.searchParams.set(k, v);
+  }
+  if (endpoint === 'players' || endpoint === 'injuries') target.searchParams.set('season', season);
+  // Their CDN will otherwise serve a response cached from before a plan
+  // upgrade, which is how a premium key reports tier=free and 10 of 878 rows.
+  target.searchParams.set('_cb', String(Date.now()));
+
+  let upstream;
+  try {
+    upstream = await fetch(target.toString(), {
+      headers: {
+        'x-api-key': env.FANTASYPROS_API_KEY,
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+    });
+  } catch (err) {
+    return json({ error: { message: `FantasyPros unreachable: ${err.message}` } }, 502, cors);
+  }
+
+  const text = await upstream.text();
+  return new Response(text, {
+    status: upstream.status,
+    headers: {
+      'content-type': upstream.headers.get('content-type') || 'application/json',
+      ...cors,
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin');
@@ -86,11 +156,11 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
-    if (request.method !== 'POST') {
-      return json({ error: { message: 'Use POST.' } }, 405, cors);
-    }
 
-    if (!env.ANTHROPIC_API_KEY || !env.APP_PASSPHRASE) {
+    const url = new URL(request.url);
+    const isFantasyPros = url.pathname.replace(/\/+$/, '').endsWith('/fantasypros');
+
+    if (!env.APP_PASSPHRASE) {
       return json({ error: { message: 'Worker is missing its secrets.' } }, 500, cors);
     }
 
@@ -102,6 +172,15 @@ export default {
 
     if (!safeEqual(request.headers.get('x-app-passphrase'), env.APP_PASSPHRASE)) {
       return json({ error: { message: 'Bad or missing passphrase.' } }, 401, cors);
+    }
+
+    if (isFantasyPros) return fantasyPros(url, env, cors);
+
+    if (request.method !== 'POST') {
+      return json({ error: { message: 'Use POST.' } }, 405, cors);
+    }
+    if (!env.ANTHROPIC_API_KEY) {
+      return json({ error: { message: 'Worker has no Anthropic key.' } }, 500, cors);
     }
 
     const raw = await request.text();

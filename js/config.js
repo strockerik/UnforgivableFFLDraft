@@ -53,6 +53,10 @@ export const DEFAULT_SETTINGS = {
   // default — but the faster path is one toggle away, and the undo toast
   // exists either way.
   confirmEveryPick: true,
+  // Refresh the board from FantasyPros when the app opens, if the cached copy
+  // is older than this. Rankings move daily in preseason and hourly on draft
+  // morning; a stale board is the quiet failure.
+  autoRefreshHours: 6,
   authMode: 'direct',
   // Pre-filled so a new browser only needs the passphrase typed in. The URL
   // is not a secret — it's gated by APP_PASSPHRASE, and a request without the
