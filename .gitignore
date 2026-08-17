@@ -42,3 +42,6 @@ __pycache__/
 
 # Local scratch copy — data/strategy.md is the canonical path the app loads.
 draft strategy skill
+
+# Generated — run tools/make_design_bundle.py to rebuild.
+design-bundle.md
