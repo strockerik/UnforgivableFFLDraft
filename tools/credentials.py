@@ -35,6 +35,9 @@ SERVICES = {
     "ffl-cloudflare": "Cloudflare API token",
     "ffl-fantasypros": "FantasyPros API key",
     "ffl-passphrase": "Worker APP_PASSPHRASE",
+    "ffl-yahoo-id": "Yahoo app Client ID (Consumer Key)",
+    "ffl-yahoo-secret": "Yahoo app Client Secret (Consumer Secret)",
+    "ffl-yahoo-refresh": "Yahoo OAuth2 refresh token (written by yahoo_auth.py login)",
 }
 
 

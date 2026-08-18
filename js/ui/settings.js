@@ -12,6 +12,53 @@ import { parseStrategyDoc, applyTags } from '../strategy.js';
 import { fetchPool } from '../fantasypros.js';
 import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
 import { myPicks } from '../snake.js';
+import { advanceMock, reseedMock } from './mock-runner.js';
+import { COACHES, coachByName, habitSummary } from '../coaches.js';
+import { toCsv, toCoachingReport, exportFilename } from '../export.js';
+
+/**
+ * Save text as a file. Uses a blob URL rather than a data: URI because the
+ * debrief can run past the length some browsers accept in an href.
+ */
+function downloadText(text, filename, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoking immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/**
+ * Clipboard write, with a fallback. navigator.clipboard is unavailable on
+ * insecure origins, which includes opening the page from file:// -- exactly
+ * the situation where someone is least able to debug why nothing happened.
+ */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to the legacy path */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 let root = null;
 let status = null;
@@ -434,11 +481,18 @@ function render() {
     ),
 
     el('section', { class: 'setup-group' },
-      el('h3', {}, '4. Draft order & team names'),
+      el('h3', {}, '4. Draft order — by coach'),
       el('p', { class: 'field-hint' },
-        'Type over any name to rename a team, and use ↑↓ to put them in the ',
-        'order drawn on draft day. Click "set" on your own team — your slot ',
-        'follows it, so you never enter it twice.'),
+        'Use ↑↓ to put the coaches in the order drawn on draft day, and click ',
+        '"set" on your own row — your slot follows it, so you never enter it twice. ',
+        'These are coaches, not team names, because team names change every year ',
+        'and the tendency history follows the person.'),
+      el('p', { class: 'field-hint' },
+        'Known coaches: ',
+        el('strong', {}, COACHES.map((c) => c.name).join(', ')),
+        '. Spelling must match for the opponent model to apply — a name it does ',
+        'not recognise simply gets no tendency data, which the recommendation ',
+        'will say.'),
       el('ol', { class: 'order-list' },
         order.map((name, i) => el('li', {
           // Identity is the slot index, not the name. Two teams can end up
@@ -476,6 +530,14 @@ function render() {
             title: 'This is my team',
             onclick: () => setSettings({ draftOrder: order, myTeamName: name, slot: i + 1 }),
           }, i + 1 === s.slot ? 'you' : 'set'),
+          // Whether the opponent model recognises this name. A typo here is
+          // otherwise invisible: the draft still works, it just quietly loses
+          // ten seasons of tendency data for that seat.
+          coachByName(name)
+            ? el('span', { class: 'order-note good-ink', title: habitSummary(coachByName(name)) },
+                '✓ history')
+            : el('span', { class: 'order-note warn-ink', title: 'No tendency history for this name.' },
+                'no history'),
         ))),
       el('p', { class: 'computed' },
         el('strong', {}, 'You pick from slot '), String(s.slot),
@@ -532,8 +594,81 @@ function render() {
       ),
     ),
 
+    el('section', { class: 'setup-group' },
+      el('h3', {}, '6. Practice draft'),
+      field('Practice mode', el('select', {
+        onchange: (e) => {
+          const on = e.target.value === 'on';
+          if (on && state.picks.length && !confirm(
+            `This draft already has ${state.picks.length} pick(s). Practice mode will start `
+            + 'auto-drafting for the other nine coaches from here.\n\nTurn it on anyway?')) {
+            return;
+          }
+          if (on) reseedMock();
+          setSettings({ mockDraft: on });
+          if (on) advanceMock();
+        },
+      }, [
+        el('option', { value: 'off', selected: !s.mockDraft }, 'Off — you record every pick'),
+        el('option', { value: 'on', selected: !!s.mockDraft }, 'On — the other 9 coaches draft themselves'),
+      ]), 'Rehearsal only. The other coaches pick by ADP, bent toward their real '
+        + 'habits, and are forced to fill starters late exactly as Yahoo forces them.'),
+      s.mockDraft
+        ? el('div', { class: 'row' },
+            el('button', {
+              class: 'btn',
+              onclick: () => { reseedMock(); resetDraft(); advanceMock(); },
+            }, 'Restart practice draft'),
+            el('button', {
+              class: 'btn small',
+              onclick: () => advanceMock(),
+            }, 'Advance to my turn'),
+          )
+        : null,
+      s.mockDraft
+        ? el('p', { class: 'hint warn-inline' },
+            'Practice mode is ON. Turn it OFF before your real draft, or the app will '
+            + 'draft over your league-mates’ actual picks.')
+        : null,
+    ),
+
+    el('section', { class: 'setup-group' },
+      el('h3', {}, '7. Export draft'),
+      el('p', { class: 'field-hint' },
+        state.picks.length
+          ? `${state.picks.length} pick(s) recorded${s.mockDraft ? ' (practice draft)' : ''}.`
+          : 'Nothing to export yet — the draft has no picks.'),
+      el('div', { class: 'row' },
+        el('button', {
+          class: 'btn', disabled: !state.picks.length,
+          onclick: () => downloadText(toCsv(state),
+            exportFilename(state, { isMock: !!s.mockDraft, ext: 'csv' }), 'text/csv'),
+        }, 'Download CSV'),
+        el('button', {
+          class: 'btn', disabled: !state.picks.length,
+          onclick: () => downloadText(toCoachingReport(state, { isMock: !!s.mockDraft }),
+            exportFilename(state, { isMock: !!s.mockDraft }), 'text/markdown'),
+        }, 'Download debrief'),
+        el('button', {
+          class: 'btn primary', disabled: !state.picks.length,
+          onclick: async () => {
+            const text = toCoachingReport(state, { isMock: !!s.mockDraft });
+            const ok = await copyText(text);
+            setStatus(ok
+              ? `Debrief copied (${text.length.toLocaleString()} chars) — paste it to Claude for coaching.`
+              : 'Could not reach the clipboard. Use "Download debrief" instead.',
+              ok ? 'ok' : 'error');
+          },
+        }, 'Copy debrief for Claude'),
+      ),
+      el('p', { class: 'field-hint' },
+        'The debrief is markdown: your roster, every pick with the players you ',
+        'passed over, and whether each of them was still there at your next turn. ',
+        'Paste it into Claude and ask it to grade the draft.'),
+    ),
+
     el('section', { class: 'setup-group danger' },
-      el('h3', {}, '6. Reset'),
+      el('h3', {}, '8. Reset'),
       field('Confirm every pick', el('select', {
         onchange: (e) => setSettings({ confirmEveryPick: e.target.value === 'yes' }),
       }, [

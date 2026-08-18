@@ -10,9 +10,13 @@ import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAd
 import { replacementLevels, computeValues, biggestDisagreements } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
-import { validateRecommendation, recommend } from '../js/claude.js';
+import { validateRecommendation, recommend, RECOMMENDATION_SCHEMA } from '../js/claude.js';
 import { parseStrategyDoc, applyTags } from '../js/strategy.js';
 import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
+import { coachByName, reliableHabits, habitSummary, coachesUntilMyTurn,
+         positionsAtRisk, TEAM_TO_COACH } from '../js/coaches.js';
+import { makeRng, mockPickFor, unfilledSlots, runOpponentsUntilMyTurn } from '../js/mock.js';
+import { toCsv, toCoachingReport, exportFilename } from '../js/export.js';
 
 // --- tiny harness -----------------------------------------------------------
 let passed = 0, failed = 0;
@@ -874,6 +878,320 @@ await expectKind({ authMode: 'proxy', proxyUrl: 'https://x.dev', model: 'claude-
   'no-key', 'proxy mode without a passphrase fails before any request');
 await expectKind({ authMode: 'direct', model: 'claude-opus-5' },
   'no-key', 'direct mode without an API key fails before any request');
+
+// ============================================================================
+group('opponent model (js/coaches.js)');
+
+test('reliableHabits keeps tight patterns and drops noisy ones', () => {
+  const alex = coachByName('Alex');
+  const habits = reliableHabits(alex);
+  const positions = habits.map((h) => h.pos);
+  // RB spread 0 and WR spread 0 across four seasons — the whole point.
+  ok(positions.includes('RB'), 'Alex RB (spread 0) should survive');
+  ok(positions.includes('WR'), 'Alex WR (spread 0) should survive');
+  // QB spread 4 is too noisy to act on.
+  ok(!positions.includes('QB'), 'Alex QB (spread 4) should be filtered out');
+});
+
+test('a coach with no tight pattern reports none rather than inventing one', () => {
+  const mark = coachByName('Mark');
+  ok(!reliableHabits(mark).some((h) => h.pos === 'QB'),
+    "Mark's QB spread is 7 — must not be presented as a habit");
+});
+
+test('habitSummary flags a never-varying drafter', () => {
+  ok(habitSummary(coachByName('Alex')).includes('never varies'),
+    'Alex opened RB in every one of the last four seasons');
+});
+
+test('a drifted habit reports the recent number and says it moved', () => {
+  // Josh took his first QB in round 6 for 2016-21 and round 4.5 since. The
+  // decade average would describe neither era, so the recent number must win.
+  const josh = habitSummary(coachByName('Josh'));
+  ok(josh.includes('r4.5'), `expected the recent mean, got: ${josh}`);
+  ok(!josh.includes('r6.0'), 'must not present the stale mean as current');
+  ok(/moved up from 6\.0/.test(josh), `expected drift to be surfaced, got: ${josh}`);
+});
+
+test('a decade-long trait is distinguished from a recent one', () => {
+  ok(habitSummary(coachByName('Erik')).includes('10yr'),
+    'Erik has opened RB then WR for ten years');
+});
+
+test('noisy positions never reach the model, however extreme the mean', () => {
+  // Robert E. has a TE spread of 8 rounds — an average of 6.0 built from
+  // rounds 2 and 10 predicts nothing and must not be surfaced.
+  const robert = coachByName('Robert E.');
+  ok(!reliableHabits(robert).some((h) => h.pos === 'TE'), 'TE spread 8 must be dropped');
+  eq(habitSummary(robert), 'no reliable pattern');
+});
+
+test('coachesUntilMyTurn walks the snake in order', () => {
+  const order = ['A', 'B', 'C', 'D'];
+  const clock = (p) => slotOnClock(p, 4);
+  // Picks 2..4 in round 1 are slots 2,3,4.
+  const got = coachesUntilMyTurn(order, clock, 2, 5).map((u) => u.name);
+  eq(got, ['B', 'C', 'D'], 'round 1 forward: ');
+  // Round 2 reverses: pick 5 is slot 4, 6 is slot 3.
+  eq(coachesUntilMyTurn(order, clock, 5, 7).map((u) => u.name), ['D', 'C'], 'round 2 reversed: ');
+});
+
+test('positionsAtRisk only counts coaches who have reached their habit round', () => {
+  const upcoming = [{ coach: coachByName('Alex') }];   // RB r1.0, WR r2.0
+  const r1 = positionsAtRisk(upcoming, 1).map((x) => x.pos);
+  ok(r1.includes('RB'), 'RB is at risk in round 1');
+  const r8 = positionsAtRisk(upcoming, 8).map((x) => x.pos);
+  ok(r8.includes('RB') && r8.includes('WR'), 'both are live by round 8');
+});
+
+test('unknown coach names produce no opponent model rather than throwing', () => {
+  const order = ['Stranger', 'Nobody'];
+  const upcoming = coachesUntilMyTurn(order, (p) => slotOnClock(p, 2), 1, 3);
+  eq(upcoming.filter((u) => u.coach).length, 0, 'no history for strangers: ');
+  eq(positionsAtRisk(upcoming, 5), [], 'and nothing at risk: ');
+});
+
+test('evidence packet carries the opponent model without touching the allowlist', () => {
+  const st = mkState();
+  const ev = buildEvidence(st, avail(st), evaluate(st, avail(st)));
+  ok(Array.isArray(ev.opponentsBeforeYourNextPick), 'section present');
+  ok(ev.opponentsBeforeYourNextPick.length > 0, 'slot 7 has coaches ahead of it');
+  ok(ev.opponentsBeforeYourNextPick.every((o) => o.coach && o.reliableHabits),
+    'each entry names a coach and a habit summary');
+  // The opponent model must never leak into the availability contract.
+  ok(ev.availablePlayerAllowlist.length > 0, 'allowlist still populated');
+  ok(!JSON.stringify(ev.availablePlayerAllowlist).includes('reliableHabits'),
+    'allowlist unpolluted');
+});
+
+test('legacy saved settings migrate team names to coach names', () => {
+  const legacy = {
+    draftOrder: ['Vegan Beer', 'Dad Bod', 'The Juice is Loose'],
+    myTeamName: 'Vegan Beer',
+  };
+  const migrated = {
+    ...legacy,
+    draftOrder: legacy.draftOrder.map((n) => TEAM_TO_COACH[n] || n),
+    myTeamName: TEAM_TO_COACH[legacy.myTeamName] || legacy.myTeamName,
+  };
+  eq(migrated.draftOrder, ['Erik', 'Rob K.', 'Josh'], 'order: ');
+  eq(migrated.myTeamName, 'Erik', 'my name: ');
+  // Idempotent — running it again changes nothing.
+  eq(migrated.draftOrder.map((n) => TEAM_TO_COACH[n] || n), ['Erik', 'Rob K.', 'Josh'],
+    'second pass: ');
+});
+
+// ============================================================================
+group('mock draft (js/mock.js)');
+
+test('an opponent never picks an unavailable player', () => {
+  const st = mkState();
+  const rng = makeRng(7);
+  const taken = new Set();
+  for (let i = 0; i < 40; i += 1) {
+    const avail = pool.filter((p) => !taken.has(p.id));
+    const choice = mockPickFor('Alex', avail, [], st.settings, 1 + Math.floor(i / 10), rng);
+    ok(choice && !taken.has(choice.id), 'picked an already-drafted player');
+    taken.add(choice.id);
+  }
+});
+
+test('opponents avoid K and DST until the late rounds', () => {
+  const st = mkState();
+  const rng = makeRng(3);
+  for (let i = 0; i < 60; i += 1) {
+    const choice = mockPickFor('Drew', pool, [], st.settings, 4, rng);
+    ok(choice.pos !== 'K' && choice.pos !== 'DST', `took a ${choice.pos} in round 4`);
+  }
+});
+
+test('a coach is pulled toward a reliable habit', () => {
+  // Alex opens RB every year. Over many samples he should take RB in round 1
+  // far more often than a coach with no RB habit at all.
+  const st = mkState();
+  const count = (name) => {
+    const rng = makeRng(11);
+    let rb = 0;
+    for (let i = 0; i < 200; i += 1) {
+      if (mockPickFor(name, pool, [], st.settings, 1, rng).pos === 'RB') rb += 1;
+    }
+    return rb;
+  };
+  ok(count('Alex') > count('Robert E.'),
+    `Alex ${count('Alex')} vs Robert E. ${count('Robert E.')} — habit had no effect`);
+});
+
+test('the endgame forces a startable player, as Yahoo does', () => {
+  const st = mkState();
+  // Fourteen picks in, no TE yet: with one pick left and a TE slot open, the
+  // only legal choice is a TE.
+  const roster = [];
+  const byPos = (p) => pool.filter((x) => x.pos === p);
+  roster.push(...byPos('QB').slice(0, 1), ...byPos('RB').slice(0, 4),
+    ...byPos('WR').slice(0, 5), ...byPos('K').slice(0, 1),
+    ...byPos('DST').slice(0, 1), ...byPos('RB').slice(4, 6));
+  eq(roster.length, 14, 'fixture roster size: ');
+  const need = unfilledSlots(roster, st.settings);
+  ok((need.TE || 0) > 0, 'fixture should leave TE unfilled');
+  const rng = makeRng(5);
+  for (let i = 0; i < 25; i += 1) {
+    const choice = mockPickFor('Danny', pool, roster, st.settings, 15, rng);
+    eq(choice.pos, 'TE', `forced pick ${i} should be a TE: `);
+  }
+});
+
+test('unfilledSlots resolves FLEX last, not greedily', () => {
+  const st = mkState();
+  const wrs = pool.filter((p) => p.pos === 'WR').slice(0, 4);
+  const need = unfilledSlots(wrs, st.settings);
+  // Roster is WR3 + FLEX = 4 WRs, so both should be consumed and no WR left owing.
+  eq(need.WR, 0, 'WR starters: ');
+  eq(need.FLEX, 0, 'FLEX taken by the 4th WR: ');
+  ok((need.RB || 0) > 0, 'RB should still be owed');
+});
+
+test('runOpponentsUntilMyTurn stops on your pick and never overruns', () => {
+  const settings = { ...DEFAULT_SETTINGS, teams: 10, slot: 3, rounds: 15 };
+  const st = { settings, pool, picks: [], valueMode: 'projections' };
+  const drafted = runOpponentsUntilMyTurn(st, {
+    record: (id) => {
+      st.picks.push({ pickNo: st.picks.length + 1, playerId: id,
+        teamSlot: slotOnClock(st.picks.length + 1, settings.teams) });
+      return true;
+    },
+    slotOnClock, mySlot: 3, rng: makeRng(2),
+  });
+  eq(drafted.length, 2, 'slot 3 should have exactly 2 picks ahead of it: ');
+  eq(st.picks.length, 2, 'recorded: ');
+  eq(slotOnClock(st.picks.length + 1, 10), 3, 'clock should now be on you: ');
+});
+
+test('a rejected pick aborts rather than spinning forever', () => {
+  const settings = { ...DEFAULT_SETTINGS, teams: 10, slot: 5, rounds: 15 };
+  const st = { settings, pool, picks: [], valueMode: 'projections' };
+  const drafted = runOpponentsUntilMyTurn(st, {
+    record: () => false,          // every write refused
+    slotOnClock, mySlot: 5, rng: makeRng(1),
+  });
+  eq(drafted.length, 0, 'should give up immediately: ');
+});
+
+// ============================================================================
+group('claude.js — recommendation surfaces its reasoning');
+
+test('schema requires the timing, strategy and confidence fields', () => {
+  const props = RECOMMENDATION_SCHEMA.properties;
+  for (const f of ['timing_note', 'strategy_note', 'confidence']) {
+    ok(props[f], `${f} missing from schema`);
+    ok(RECOMMENDATION_SCHEMA.required.includes(f), `${f} not required`);
+  }
+  eq(props.confidence.enum, ['high', 'medium', 'low']);
+});
+
+test('validation still turns only on the allowlist, not the new prose fields', () => {
+  const rec = {
+    primary_pick: { name: 'A', position: 'RB', reason: 'r' },
+    alternatives: [],
+    positional_advice: 'x',
+    timing_note: '', strategy_note: '', confidence: 'low',
+  };
+  ok(validateRecommendation(rec, ['A']).ok, 'empty notes should not fail validation');
+  ok(!validateRecommendation(rec, ['B']).ok, 'a drafted player must still fail');
+});
+
+// ============================================================================
+group('export (js/export.js)');
+
+// A complete 150-pick draft through the mock engine, slot 3 is "me". Full
+// length matters: a short draft never fills a FLEX or a bench, so it cannot
+// exercise the parts of the debrief that describe roster construction.
+const EXP_PICKS = 150;
+const expSettings = { ...DEFAULT_SETTINGS, teams: 10, rounds: 15, slot: 3,
+  myTeamName: DEFAULT_SETTINGS.draftOrder[2] };
+const expState = { settings: expSettings, pool, picks: [], valueMode: 'projections' };
+{
+  const rng = makeRng(42);
+  const rosterFor = (slot) => {
+    const byId = new Map(pool.map((p) => [p.id, p]));
+    return expState.picks.filter((pk) => pk.teamSlot === slot)
+      .map((pk) => byId.get(pk.playerId)).filter(Boolean);
+  };
+  for (let i = 1; i <= EXP_PICKS; i += 1) {
+    const slot = slotOnClock(i, 10);
+    const taken = new Set(expState.picks.map((p) => p.playerId));
+    const avail = pool.filter((p) => !taken.has(p.id));
+    const choice = mockPickFor(expSettings.draftOrder[slot - 1], avail, rosterFor(slot),
+      expSettings, Math.floor((i - 1) / 10) + 1, rng);
+    expState.picks.push({ pickNo: i, playerId: choice.id, teamSlot: slot });
+  }
+}
+
+test('CSV has a header and one row per pick', () => {
+  const lines = toCsv(expState).trim().split('\n');
+  eq(lines.length, EXP_PICKS + 1, `header + ${EXP_PICKS} picks: `);
+  eq(lines[0].split(',')[0], 'pick');
+  eq(lines[1].split(',').length, 12, 'column count: ');
+});
+
+test('a full mock draft leaves every team with a legal starting lineup', () => {
+  // The endgame constraint is the thing most likely to regress silently, and
+  // rehearsing against a field that ends with holes teaches the wrong habits.
+  const byId = new Map(pool.map((p) => [p.id, p]));
+  for (let slot = 1; slot <= 10; slot += 1) {
+    const roster = expState.picks.filter((pk) => pk.teamSlot === slot)
+      .map((pk) => byId.get(pk.playerId)).filter(Boolean);
+    const need = unfilledSlots(roster, expSettings);
+    const short = Object.entries(need).filter(([, v]) => v > 0);
+    eq(short, [], `slot ${slot} finished short: `);
+  }
+});
+
+test('CSV quotes a coach name containing a comma', () => {
+  const tricky = { ...expState, settings: { ...expSettings, draftOrder: ['A, Jr.', ...expSettings.draftOrder.slice(1)] } };
+  const line = toCsv(tricky).split('\n')[1];
+  ok(line.includes('"A, Jr."'), `expected a quoted field, got: ${line}`);
+});
+
+test('debrief states plainly whether the draft was simulated', () => {
+  ok(toCoachingReport(expState, { isMock: true }).includes('PRACTICE draft'),
+    'a practice debrief must say so — coaching off simulated opponents is worth less');
+  ok(toCoachingReport(expState, { isMock: false }).includes('Real draft'));
+});
+
+test('debrief reports only my picks in the pick-by-pick section', () => {
+  const rep = toCoachingReport(expState, { isMock: true });
+  const headers = rep.match(/^### Pick (\d+)/gm) || [];
+  const nums = headers.map((h) => Number(h.match(/\d+/)[0]));
+  ok(nums.length > 0, 'no picks reported');
+  for (const n of nums) {
+    eq(slotOnClock(n, 10), 3, `pick ${n} is not mine: `);
+  }
+});
+
+test('debrief distinguishes the FLEX starter from a positional starter', () => {
+  const rep = toCoachingReport(expState, { isMock: true });
+  ok(/\| FLEX \|/.test(rep) || !/## My roster/.test(rep),
+    'a filled FLEX slot should be labelled, not shown as a duplicate position');
+});
+
+test('debrief survives a pool that never loaded projections', () => {
+  const bare = { ...expState, valueMode: 'surrogate' };
+  const rep = toCoachingReport(bare, { isMock: false });
+  ok(rep.includes('rank-based surrogate'),
+    'must disclose that values are not real VORP, or the coaching is built on sand');
+});
+
+test('exporting an empty draft produces headers, not a crash', () => {
+  const empty = { settings: expSettings, pool, picks: [], valueMode: 'projections' };
+  eq(toCsv(empty).trim().split('\n').length, 1, 'header only: ');
+  ok(toCoachingReport(empty, { isMock: false }).includes('Picks made: 0'));
+});
+
+test('filename encodes mode and pick count', () => {
+  ok(new RegExp(`^practice-\\d{4}-\\d{2}-\\d{2}-${EXP_PICKS}picks\\.md$`)
+    .test(exportFilename(expState, { isMock: true })));
+  ok(/^draft-.*\.csv$/.test(exportFilename(expState, { isMock: false, ext: 'csv' })));
+});
 
 // ============================================================================
 out(`\n${passed} passed, ${failed} failed`);

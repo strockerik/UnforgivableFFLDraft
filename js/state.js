@@ -4,6 +4,7 @@
 import { KEYS, DEFAULT_SETTINGS } from './config.js';
 import { slotOnClock } from './snake.js';
 import { nameKey } from './players.js';
+import { TEAM_TO_COACH } from './coaches.js';
 
 const UNDO_DEPTH = 30;
 
@@ -55,10 +56,26 @@ function save() {
   }
 }
 
+/**
+ * Settings saved before the switch to coach names still hold team names, and
+ * a saved copy always wins over the defaults — so without this, an existing
+ * browser would keep showing "Harambe McHarambeface" forever. Idempotent:
+ * a name that is already a coach passes through untouched.
+ */
+function migrateToCoachNames(settings) {
+  const order = settings.draftOrder;
+  if (!Array.isArray(order) || !order.some((n) => TEAM_TO_COACH[n])) return settings;
+  return {
+    ...settings,
+    draftOrder: order.map((n) => TEAM_TO_COACH[n] || n),
+    myTeamName: TEAM_TO_COACH[settings.myTeamName] || settings.myTeamName,
+  };
+}
+
 export function load() {
   try {
     const s = localStorage.getItem(KEYS.settings);
-    if (s) state.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
+    if (s) state.settings = migrateToCoachNames({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
 
     const p = localStorage.getItem(KEYS.pool);
     if (p) {

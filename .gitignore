@@ -4,6 +4,8 @@
 # the history is rewritten. And `git add -f` overrides it.
 .fpkey
 .cfkey
+.yhid
+.yhsecret
 *.key
 *.pem
 
@@ -28,6 +30,18 @@ Fantasy Ranking/
 data/players.json
 data/raw-response.json
 
+# League draft history — every manager's every pick across seasons. This is
+# other people's data in a public repo, and unlike the team names already
+# committed it is a behavioural profile. Keep it local.
+data/draft-history.json
+data/tendencies.json
+data/yahoo-raw/
+
+# Regenerable cache of NFL name -> position covering retired players, built by
+# tools/fetch_player_positions.py. Only the history parser needs it; the app
+# never loads it.
+data/player-positions.json
+
 # The synthetic sample CSVs are ours and DO belong in the repo, so the app is
 # demoable on a fresh clone:
 !data/sample-rankings.csv
@@ -45,3 +59,13 @@ draft strategy skill
 
 # Generated — run tools/make_design_bundle.py to rebuild.
 design-bundle.md
+
+# Yahoo app redirect URI (not a secret, but league-local config).
+data/yahoo-app.json
+
+# Saved Yahoo league pages — contain league members' real names and email
+# addresses. Parsed locally by tools/parse_yahoo_drafts.py; never published.
+data/Yahoo/*.html
+
+# Cached Sleeper season stats for the draft-performance ranking (regenerable).
+data/season-stats/

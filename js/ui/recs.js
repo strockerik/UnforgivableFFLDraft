@@ -110,8 +110,23 @@ function render() {
           shown.alternatives.map((a) => pickCard(a, evaluation, false)),
         )
       : null,
+    // Why this pick, from the three inputs that would otherwise be invisible:
+    // who drafts before your next turn, and your own strategy document. Shown
+    // above the general advice because on the clock they are the actionable
+    // half — "Rob K. takes a TE around now" changes what you do in ten seconds.
+    shown?.timing_note
+      ? el('div', { class: 'advice' },
+          el('h3', {}, 'Timing', shown.confidence
+            ? el('span', { class: `conf conf-${shown.confidence}` }, shown.confidence)
+            : null),
+          el('p', {}, shown.timing_note))
+      : null,
+    shown?.strategy_note
+      ? el('div', { class: 'advice' },
+          el('h3', {}, 'Against your strategy doc'), el('p', {}, shown.strategy_note))
+      : null,
     shown?.positional_advice
-      ? el('div', { class: 'advice' }, el('h3', {}, 'Strategy'), el('p', {}, shown.positional_advice))
+      ? el('div', { class: 'advice' }, el('h3', {}, 'Next two turns'), el('p', {}, shown.positional_advice))
       : null,
 
     boardSignals(evaluation),

@@ -333,7 +333,10 @@ body {
 
 /* ---- draft order editor ---- */
 .order-list { list-style: none; margin: 0.4rem 0; padding: 0; display: grid; gap: 0.25rem; max-width: 34rem; }
-.order-row { display: grid; grid-template-columns: 1.6rem 1fr auto auto auto; gap: 0.3rem; align-items: center; }
+.order-row { display: grid; grid-template-columns: 1.6rem 1fr auto auto auto auto; gap: 0.3rem; align-items: center; }
+/* Tendency-history indicator. Kept narrow and fixed-width so adding it does
+   not reflow the name field, which is the control actually being used. */
+.order-note { font-size: 0.68rem; font-weight: 700; white-space: nowrap; min-width: 5.2rem; text-align: right; }
 .order-mine .order-name { border-color: var(--mine); }
 .order-slot { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-align: right; }
 .order-name {
@@ -387,3 +390,15 @@ body {
 }
 .toast-x { background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; line-height: 1; }
 @media print { .toast-host { display: none !important; } }
+
+/* Confidence chip on the timing note. Colour is a secondary cue only — the
+   word itself carries the meaning, so this survives greyscale and colourblind
+   viewing exactly like the position chips do. */
+.conf {
+  margin-left: 0.5rem; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 0.1rem 0.35rem; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); vertical-align: middle;
+}
+.conf-high { color: var(--good-ink); border-color: var(--good); }
+.conf-medium { color: var(--warn-ink); border-color: var(--warn); }
+.conf-low { color: var(--bad-ink); border-color: var(--bad); border-style: dashed; }

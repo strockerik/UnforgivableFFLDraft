@@ -39,25 +39,35 @@ export const DEFAULT_SETTINGS = {
   bench: 5,
   model: 'claude-opus-5',
   effort: 'medium',
-  // Draft order, slot 1..N. Seeded with the league's team-key order, which is
-  // NOT the draft order — you set the real one on draft day, and `slot` is
-  // derived from where your team lands in it.
+  // Draft order, slot 1..N — by COACH, not team name. Team names change every
+  // year and half the league renames mid-season; the people are the constant,
+  // and four seasons of tendency history join on them (see js/coaches.js).
+  // Seeded with the 2025 draft order, which is NOT this year's — set the real
+  // one on draft day, and `slot` is derived from where you land in it.
   draftOrder: [
-    'Feel It In My Plums', '40 is a long way', 'Vegan Beer', 'Biz Fuck it',
-    'No Email till Brooklyn', 'Dad Bod', 'Harambe McHarambeface',
-    'The Juice is Loose', 'Do It Lady!', "Youain't1styourlast",
+    'Danny', 'Rob K.', 'Drew', 'Joel', 'Mark',
+    'Robert E.', 'Erik', 'Brandon', 'Alex', 'Josh',
   ],
-  myTeamName: 'Vegan Beer',
+  myTeamName: 'Erik',
   // Design review argued for instant-record + undo instead of a modal on
   // every pick. Erik asked for the confirmation explicitly, so it stays the
   // default — but the faster path is one toggle away, and the undo toast
   // exists either way.
   confirmEveryPick: true,
+  // Practice mode. When on, the other nine coaches draft themselves so a
+  // rehearsal needs only your own picks. Off by default and never persisted
+  // as on by accident — recording a real draft with this enabled would have
+  // the app drafting over your league-mates' actual picks.
+  mockDraft: false,
   // Refresh the board from FantasyPros when the app opens, if the cached copy
   // is older than this. Rankings move daily in preseason and hourly on draft
   // morning; a stale board is the quiet failure.
   autoRefreshHours: 6,
-  authMode: 'direct',
+  // Proxy by default: the Anthropic key lives as a Worker secret, so a fresh
+  // browser on draft morning needs only the passphrase typed in. Defaulting to
+  // 'direct' would strand a new device that has no key stored. Saved settings
+  // still win, so this only affects a first run.
+  authMode: 'proxy',
   // Pre-filled so a new browser only needs the passphrase typed in. The URL
   // is not a secret — it's gated by APP_PASSPHRASE, and a request without the
   // right one gets a 401 having cost nothing. Change it under Setup if you
@@ -96,7 +106,7 @@ export const TEAMS = new Set([
 // Name suffixes stripped before building a join key.
 export const SUFFIXES = new Set(['JR', 'SR', 'II', 'III', 'IV', 'V']);
 
-/** Display name for a draft slot (1-indexed). Falls back to "Team N". */
+/** Display name (coach) for a draft slot (1-indexed). Falls back to "Team N". */
 export function teamNameForSlot(settings, slot) {
   const name = (settings.draftOrder || [])[slot - 1];
   return name || `Team ${slot}`;

@@ -5,7 +5,8 @@
 // engine computes; it never owns availability and never mutates state.
 
 import { FLEX_ELIGIBLE, POSITIONS, SCARCITY_RANK } from './config.js';
-import { draftPosition } from './snake.js';
+import { draftPosition, slotOnClock } from './snake.js';
+import { coachesUntilMyTurn, positionsAtRisk, habitSummary } from './coaches.js';
 import { replacementLevels } from './vorp.js';
 
 const RUN_WINDOW = 8;      // picks looked back at for a positional run
@@ -287,6 +288,18 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     for (const p of list) allowlist.push(p.name);
   }
 
+  // Who is actually on the clock before you pick again, and what four seasons
+  // of live drafting say they do. This informs TIMING only — whether a player
+  // survives the wait — and must never reorder the value board itself.
+  const windowStart = position.isMyPick ? position.pickNo + 1 : position.pickNo;
+  const windowEnd = position.isMyPick
+    ? position.pickNo + (position.gapToFollowingPick ?? 0)
+    : (position.nextPick ?? position.pickNo);
+  const upcoming = coachesUntilMyTurn(
+    settings.draftOrder || [], (p) => slotOnClock(p, settings.teams), windowStart, windowEnd
+  );
+  const atRisk = positionsAtRisk(upcoming, position.round);
+
   return {
     league: {
       teams: settings.teams,
@@ -319,6 +332,17 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       tierCliffs: cliffs,
       recentPositionRuns: runs,
     },
+    // Opponent model. Empty when no history exists for these names, which is
+    // the correct behaviour on a draft order of strangers.
+    opponentsBeforeYourNextPick: upcoming
+      .filter((u) => u.coach)
+      .map((u) => ({
+        pick: u.pickNo,
+        coach: u.name,
+        reliableHabits: habitSummary(u.coach),
+        earlyRoundMix: u.coach.earlyMix,
+      })),
+    positionsLikelyGoneBeforeYourNextPick: atRisk,
     // Hard constraint: the model may only name someone on this list.
     availablePlayerAllowlist: allowlist,
   };

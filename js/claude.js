@@ -41,8 +41,33 @@ export const RECOMMENDATION_SCHEMA = {
       type: 'string',
       description: 'One short paragraph on what to target over the next two turns.',
     },
+    // These three exist so the recommendation shows its work. Without them the
+    // opponent model, the league's market quirks and the user's own strategy
+    // document all feed the answer invisibly, and there is no way to tell a
+    // well-reasoned pick from a lucky one -- or to notice when the model has
+    // quietly ignored the strategy document entirely.
+    timing_note: {
+      type: 'string',
+      description: 'One or two sentences: given who picks before the user\'s next turn and how '
+        + 'this league drafts versus ADP, what will not survive the wait and what will. '
+        + 'Name the coaches whose habits drive it. If nothing is at risk, say the user can wait.',
+    },
+    strategy_note: {
+      type: 'string',
+      description: 'One or two sentences on how this pick sits with the user\'s own strategy '
+        + 'document and any tags on the player. If the document is silent on this situation, '
+        + 'say so plainly rather than inventing agreement. If the pick CONTRADICTS the document, '
+        + 'say that explicitly and why it is still right.',
+    },
+    confidence: {
+      type: 'string',
+      enum: ['high', 'medium', 'low'],
+      description: 'high = clear value gap or hard scarcity; medium = close call between named '
+        + 'alternatives; low = coin flip, or key information is missing or stale.',
+    },
   },
-  required: ['primary_pick', 'alternatives', 'positional_advice'],
+  required: ['primary_pick', 'alternatives', 'positional_advice',
+    'timing_note', 'strategy_note', 'confidence'],
   additionalProperties: false,
 };
 
@@ -69,6 +94,17 @@ When several teams take the same position in quick succession, the remaining sup
 
 PICK TIMING
 Account for how many picks elapse before the user's next turn. A player who will plainly survive that gap can wait; a player who will not, cannot.
+
+THIS LEAGUE'S MARKET
+Ten seasons of this league's own drafts (all live, in person) show where it systematically departs from national ADP. These are league-wide facts, not one opponent's habit, and they hold every year:
+- QUARTERBACKS GO EARLY HERE, in a narrow window. By the end of round 3 this league has taken 3 QBs where national ADP predicts 1; by round 5 it is 5.5 versus 2. Then it stops — ten teams need ten starters and by round 9 everyone has one. National ADP implies a startable QB survives to round 7-8; in this league that is false. The QB window effectively closes in rounds 5-6. This compounds with the league's 6-point passing TDs, which already raise QB value above what the rankings assume.
+- RUNNING BACKS LAST LONGER HERE. At the end of round 2 the market expects 12 RBs gone; this league averages 8.8. Expect roughly three more RBs on the board than an ADP-sorted list predicts through the early rounds.
+- KICKERS AND DEFENCES GO EARLY HERE. By end of round 12 this league has taken 3.5 Ks and 6.8 DSTs against a market expectation of 1 and 3 — roughly ten picks spent on fungible positions while real players remain. Never follow them. Waiting until the final two rounds for K and DST is a standing edge in this league, not a preference.
+Use these to adjust TIMING against ADP. They do not change any player's value.
+
+KNOWN OPPONENTS
+\`opponentsBeforeYourNextPick\` lists the coaches actually on the clock before the user picks again, with habits drawn from four seasons of this league's drafts. Every one of those drafts was live and in person — there is no autodraft here — so a habit marked "never varies" is a real, repeated human pattern, not noise. \`positionsLikelyGoneBeforeYourNextPick\` counts how many of those coaches have a reliable habit of taking each position by this round.
+Use this for TIMING ONLY. It changes whether the user can afford to wait on a position, never which player is better. Concretely: if the user wants a position that two upcoming coaches reliably take by this round, taking it now is justified; if nobody upcoming has ever wanted it early, it can wait a round and the user should bank the better player instead. Never promote a lower-value player over a higher-value one on the strength of an opponent habit, and never claim a specific player will be taken by a specific coach — the habits are positional, not player-level. An empty list means no history for these names; fall back to ADP and runs.
 
 TWO VALUATIONS
 When projections are loaded, each player carries \`valueFromProjections\` (a statistical forecast of points above replacement) and \`valueFromConsensusRank\` (where 100+ experts rank him, converted to points), plus \`projectionVsConsensusGap\` between them. They answer different questions and neither is authoritative. A large positive gap means the forecast likes him more than the market does — potential value, or a projection that has not caught up to news. A large negative gap means the market likes him more than the forecast does — potential trap, or expert knowledge the model lacks. Call out a large gap when it bears on the pick, and say which way it cuts. When only \`value\` is present, no projections were loaded and it is the rank-based number alone.

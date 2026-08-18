@@ -11,6 +11,7 @@ import { initRecs } from './ui/recs.js';
 import { initSettings, autoLoad } from './ui/settings.js';
 import { initCheatsheet } from './ui/cheatsheet.js';
 import { initTeams } from './ui/teams.js';
+import { initMockRunner } from './ui/mock-runner.js';
 
 function renderStatusBar() {
   const bar = $('#status-bar');
@@ -94,6 +95,7 @@ function main() {
   const rerenderSettings = initSettings($('#setup'));
   const rerenderCheat = initCheatsheet($('#cheatsheet'));
   const rerenderTeams = initTeams($('#teams'));
+  const runMock = initMockRunner();
 
   subscribe(() => {
     renderStatusBar();
@@ -104,6 +106,9 @@ function main() {
     rerenderSettings();
     rerenderCheat();
     rerenderTeams();
+    // Last, and re-entrancy-guarded inside: recording an opponent pick
+    // notifies again, which re-enters this same subscriber.
+    runMock();
   });
 
   renderStatusBar();
