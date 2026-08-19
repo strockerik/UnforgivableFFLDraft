@@ -169,8 +169,16 @@ export function toCoachingReport(state, { isMock = false, title = null } = {}) {
       state.picks.filter((pk) => pk.pickNo > r.pickNo && (nextMine == null || pk.pickNo < nextMine))
         .map((pk) => pk.playerId));
 
+    // Kicker and defence VORP is not comparable to a skill position's. Their
+    // replacement level is computed the same way, but in practice you stream
+    // them week to week, so K1 being "worth 21" does not mean passing him for
+    // a receiver was a mistake. Listing them here reads as advice to draft a
+    // kicker in round 10, which is the opposite of the right answer -- so they
+    // only appear as alternatives to another K or DST.
+    const skillOnly = r.player.pos !== 'K' && r.player.pos !== 'DST';
     const better = availableThen
       .filter((p) => p.id !== r.player.id && (p.value ?? 0) > (r.player.value ?? 0))
+      .filter((p) => !(skillOnly && (p.pos === 'K' || p.pos === 'DST')))
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
       .slice(0, 4);
 

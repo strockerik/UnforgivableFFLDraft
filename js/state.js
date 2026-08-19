@@ -72,10 +72,49 @@ function migrateToCoachNames(settings) {
   };
 }
 
+/**
+ * Re-apply league facts that are not the user's to choose.
+ *
+ * Roster, bench and scoring rules were decoded from the Yahoo league export;
+ * they describe the league, not a preference. A saved copy predating that
+ * decode silently wins over the defaults forever, and the failure is invisible:
+ * the app keeps working, it just values everyone against the wrong replacement
+ * level. A stale WR2 instead of WR3 moves WR replacement from WR35 to WR25 and
+ * makes every startable receiver look worthless.
+ *
+ * Bumped whenever a league fact changes, which re-syncs every browser once.
+ * Genuine preferences — draft order, slot, model, effort, toggles — are never
+ * touched.
+ */
+function migrateLeagueFacts(settings, savedVersion) {
+  // Must key on the version found in the SAVED blob, not on the merged object.
+  // Merging spreads DEFAULT_SETTINGS first, so the merged copy always carries
+  // the current version and the check would never fire.
+  if (savedVersion === DEFAULT_SETTINGS.settingsVersion) return settings;
+  return {
+    ...settings,
+    roster: { ...DEFAULT_SETTINGS.roster },
+    bench: DEFAULT_SETTINGS.bench,
+    scoringRules: { ...DEFAULT_SETTINGS.scoringRules },
+    scoring: DEFAULT_SETTINGS.scoring,
+    teams: DEFAULT_SETTINGS.teams,
+    rounds: DEFAULT_SETTINGS.rounds,
+    settingsVersion: DEFAULT_SETTINGS.settingsVersion,
+  };
+}
+
 export function load() {
   try {
     const s = localStorage.getItem(KEYS.settings);
-    if (s) state.settings = migrateToCoachNames({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
+    if (s) {
+      const saved = JSON.parse(s);
+      state.settings = migrateLeagueFacts(
+        migrateToCoachNames({ ...DEFAULT_SETTINGS, ...saved }),
+        saved.settingsVersion);
+      // Persist immediately so the repaired settings survive even if the
+      // session ends before any other change triggers a save.
+      save();
+    }
 
     const p = localStorage.getItem(KEYS.pool);
     if (p) {

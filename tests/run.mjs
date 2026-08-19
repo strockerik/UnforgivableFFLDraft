@@ -1187,6 +1187,45 @@ test('exporting an empty draft produces headers, not a crash', () => {
   ok(toCoachingReport(empty, { isMock: false }).includes('Picks made: 0'));
 });
 
+test('stale saved settings get league facts re-applied, preferences preserved', () => {
+  // The real bug: a browser that saved settings before the Yahoo export was
+  // decoded kept WR2/bench6 forever, moving WR replacement from WR35 to WR25
+  // and making every startable receiver look worthless.
+  const stale = {
+    roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1 },
+    bench: 6, teams: 10, rounds: 15,
+    slot: 2, model: 'claude-haiku-4-5', effort: 'low', confirmEveryPick: false,
+  };
+  const merged = { ...DEFAULT_SETTINGS, ...stale };
+  ok(merged.roster.WR === 2, 'fixture should start stale');
+  ok(merged.settingsVersion === DEFAULT_SETTINGS.settingsVersion,
+    'spread pulls in the current version, so migration must key on the SAVED value');
+  // Simulate what load() does: the saved blob has no settingsVersion.
+  const saved = { ...stale };
+  const needsMigration = saved.settingsVersion !== DEFAULT_SETTINGS.settingsVersion;
+  ok(needsMigration, 'a version-less saved blob must be treated as stale');
+});
+
+test('replacement level moves with the WR starter count', () => {
+  const two = replacementLevels({ ...DEFAULT_SETTINGS, roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1 } });
+  const three = replacementLevels(DEFAULT_SETTINGS);
+  eq(three.WR, 35, 'three WR starters: ');
+  ok(three.WR > two.WR, `WR3 must push replacement deeper than WR2 (${three.WR} vs ${two.WR})`);
+});
+
+test('debrief never suggests a kicker over a skill player', () => {
+  // K/DST VORP is not comparable to a skill position's — they are streamable,
+  // so "you passed a kicker worth 21" is bad advice, not a finding.
+  const rep = toCoachingReport(expState, { isMock: true });
+  const sections = rep.split('### Pick ').slice(1);
+  for (const sec of sections) {
+    const header = sec.split('\n')[0];
+    if (/, (K|DST)$/.test(header)) continue;        // a K/DST pick may list them
+    const rows = sec.split('\n').filter((l) => /^\| .* \| (K|DST) \|/.test(l));
+    eq(rows, [], `skill pick "${header}" listed a K/DST alternative: `);
+  }
+});
+
 test('filename encodes mode and pick count', () => {
   ok(new RegExp(`^practice-\\d{4}-\\d{2}-\\d{2}-${EXP_PICKS}picks\\.md$`)
     .test(exportFilename(expState, { isMock: true })));

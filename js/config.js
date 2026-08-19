@@ -23,6 +23,12 @@ export const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
 export const BASELINE_SCORING = { passTd: 4, passInt: -2, reception: 0.5 };
 
 export const DEFAULT_SETTINGS = {
+  // Bumped whenever a LEAGUE FACT below changes (roster, bench, scoring,
+  // teams, rounds). state.js re-applies those to any saved settings carrying
+  // an older version. Without this a browser that saved settings before the
+  // Yahoo export was decoded keeps drafting against the wrong replacement
+  // levels forever, and nothing surfaces the mistake.
+  settingsVersion: 2,
   teams: 10,
   // Kept in sync with draftOrder.indexOf(myTeamName)+1 by the setup panel.
   // Seeded from team-key order, which is NOT the draft order — reset on draft day.
