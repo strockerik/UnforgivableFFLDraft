@@ -101,16 +101,69 @@ export function positionRuns(state) {
  * Best-available dominates early; roster need takes over late; DST/K are
  * pushed to the final two rounds where they belong.
  */
+/**
+ * What a SURPLUS player at each position is worth, as a fraction of his VORP,
+ * once that position's starting slots are already covered.
+ *
+ * These are judgements about how often a bench player actually enters the
+ * lineup, not measurements. RB is highest: backs get hurt most, carry the
+ * heaviest workloads, and are FLEX-eligible. QB is lowest because this league
+ * starts one and a streamed replacement costs almost nothing.
+ */
+const DEPTH_FACTOR = { RB: 0.9, WR: 0.7, TE: 0.3, QB: 0.15, DST: 0.1, K: 0.1 };
+
+/**
+ * Flat penalty for a spare body at a single-slot position, in VORP points.
+ * Needed because the multiplier above cannot discipline a negative value.
+ */
+const SURPLUS_PENALTY = { QB: 30, TE: 18, DST: 40, K: 40 };
+
+/**
+ * Hard ceiling on how many of a position the roster will ever hold.
+ *
+ * The depth discount above is a weighting, and weightings lose. Late in a
+ * draft every remaining skill player grades below replacement, so a backup
+ * quarterback at -29 outscores a bench receiver at -30 and the engine takes
+ * him — repeatedly. No sensible tuning survives that, because the comparison
+ * is between two players who are both nearly worthless.
+ *
+ * You start one QB and one TE. A second is insurance for a bye or an injury;
+ * a third can never enter the lineup in any week, so it is strictly a wasted
+ * pick. This is a roster-construction rule, not a valuation, and it belongs
+ * as a constraint rather than a number to be outbid.
+ */
+const POSITION_CAPS = { QB: 2, TE: 2, K: 1, DST: 1 };
+
 export function scoreCandidate(player, ctx) {
-  const { analysis, position, settings, cliffs } = ctx;
+  const { analysis, position, settings, cliffs, flexBaseline } = ctx;
   const progress = position.round / settings.rounds;
   const picksLeft = settings.rounds - position.round + 1;
-  let score = player.value ?? 0;
+
+  const fillsOwnSlot = analysis.unfilled.includes(player.pos);
+  const fillsFlex = !fillsOwnSlot
+    && analysis.unfilled.includes('FLEX') && FLEX_ELIGIBLE.includes(player.pos);
+  const fillsStarter = fillsOwnSlot || fillsFlex;
+
+  // VORP measures a player against HIS OWN position's replacement, which is
+  // the right question for a dedicated slot and the wrong one for a FLEX or a
+  // bench spot. Replacement points differ sharply between positions here —
+  // RB26 projects 175, WR35 152, TE12 134 — so two players can share a VORP of
+  // 12 while one outscores the other by 17 points in the same flex slot.
+  // For anything competing on raw output, measure against a single baseline.
+  // Only for positions that can actually occupy the flex. A quarterback
+  // measured against a flex baseline scores ~130 here — QBs project far more
+  // raw points than any flex-eligible player — and the engine drafts three of
+  // them. He can never fill that slot, so the comparison is meaningless.
+  const flexComparable = (flexBaseline != null && player.projPoints != null
+    && FLEX_ELIGIBLE.includes(player.pos))
+    ? player.projPoints - flexBaseline
+    : null;
+
+  let score = (fillsOwnSlot || flexComparable == null)
+    ? (player.value ?? 0)
+    : flexComparable;
 
   // Filling an actual starter hole matters more as the draft runs out.
-  const fillsStarter =
-    analysis.unfilled.includes(player.pos) ||
-    (analysis.unfilled.includes('FLEX') && FLEX_ELIGIBLE.includes(player.pos));
   if (fillsStarter) score += 120 * progress;
 
   // Endgame: once you have exactly as many picks left as unfilled starter
@@ -119,10 +172,37 @@ export function scoreCandidate(player, ctx) {
   // FLEX — and finishes the draft with an empty TE slot it can no longer fill.
   if (picksLeft <= analysis.unfilled.length && !fillsStarter) score -= 5000;
 
-  // Stop stacking a position you've already covered twice over.
+  // --- depth discount ----------------------------------------------------
+  // VORP answers "how much better than replacement is this player", which is
+  // the right question for a STARTER and the wrong one for a backup. Once a
+  // position is covered, another body is only worth what he is likely to
+  // contribute from the bench, and that differs enormously by position:
+  // a third RB starts the week either starter is hurt or in a FLEX; a second
+  // QB in a one-QB league starts almost never and is streamable besides.
+  //
+  // Without this the engine happily took a TE2 worth 9 over a WR worth 11,
+  // and a QB2 in round 13, because raw VORP says a bench tight end above
+  // replacement outranks a receiver barely above it.
   const have = analysis.counts[player.pos] || 0;
   const want = settings.roster[player.pos] || 0;
+  if (!fillsStarter && have >= want) {
+    // Applied to positive value only. Scaling a negative number toward zero
+    // would make a bad player at a discounted position look BETTER, which is
+    // exactly backwards.
+    if (score > 0) score *= DEPTH_FACTOR[player.pos] ?? 0.5;
+    // A surplus body at a single-slot position is close to dead weight
+    // regardless of his rating, so it needs a penalty that survives a
+    // negative value too.
+    if (want <= 1) score -= SURPLUS_PENALTY[player.pos] ?? 0;
+  }
+  // And stop stacking a position covered several times over.
   if (have >= want + 2) score -= 40 * (have - want - 1);
+
+  // Hard cap. Large enough that no valuation can outbid it, but below the
+  // endgame penalty so filling a mandatory starter slot still wins if the cap
+  // and the endgame ever disagree.
+  const cap = POSITION_CAPS[player.pos];
+  if (cap != null && have >= cap && !fillsOwnSlot) score -= 2000;
 
   // Kickers and defenses in round 3 lose leagues. Gate them on picks
   // remaining rather than round number: they are fungible and always
@@ -158,13 +238,40 @@ export function evaluate(state, available) {
   const analysis = rosterAnalysis(state);
   const cliffs = tierCliffs(available);
   const runs = positionRuns(state);
-  const ctx = { analysis, position, settings, cliffs };
+  const levels = replacementLevels(settings);
+  const ctx = { analysis, position, settings, cliffs,
+    flexBaseline: flexReplacementPoints(state.pool, levels) };
 
   const ranked = available
     .map((p) => ({ player: p, score: scoreCandidate(p, ctx) }))
     .sort((a, b) => b.score - a.score);
 
-  return { position, analysis, cliffs, runs, ranked, levels: replacementLevels(settings) };
+  return { position, analysis, cliffs, runs, ranked, levels };
+}
+
+/**
+ * Projected points of the best player who would not start anywhere — the true
+ * baseline for a FLEX slot, since every flex-eligible position competes for it.
+ *
+ * Taken from the full pool, not the available list: replacement level is a
+ * property of the league's roster rules, and it must not drift as players come
+ * off the board. Returns null without projections, in which case the caller
+ * falls back to VORP and the cross-position distortion simply remains — better
+ * than inventing a baseline out of ranks.
+ */
+export function flexReplacementPoints(pool, levels) {
+  if (!Array.isArray(pool) || !pool.length) return null;
+  let best = null;
+  for (const pos of FLEX_ELIGIBLE) {
+    const idx = levels[pos];
+    if (!idx) continue;
+    const ranked = pool
+      .filter((p) => p.pos === pos && p.projPoints != null)
+      .sort((a, b) => b.projPoints - a.projPoints);
+    const at = ranked[idx - 1];
+    if (at && (best == null || at.projPoints > best)) best = at.projPoints;
+  }
+  return best;
 }
 
 /** The fallback recommendation — used whenever Claude is unavailable or wrong. */

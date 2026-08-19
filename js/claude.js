@@ -103,6 +103,13 @@ This is his stated core strategy. Follow it unless the board makes it clearly wr
    - Bench slots should be weighted toward RB. In a league starting RB2 plus a FLEX, RB is the position where an injury forces a replacement-level start, and the RB pool is thinnest. A fourth TE or a sixth WR cannot enter the lineup in any week that a missing RB would.
 3. Kicker and defence in the last two rounds only. Never earlier, whatever their computed value says — that number is not comparable to a skill player's because both positions are streamed week to week.
 
+ROSTER CAPS — HARD LIMITS
+Never recommend a player who would exceed these: QB 2, TE 2, DST 1, K 1. There is deliberately NO cap on RB or WR — those are where depth belongs, because both are FLEX-eligible and both suffer injuries that force a start.
+A third QB or third TE cannot enter the lineup in any week of the season, so his value is exactly zero no matter what number the board shows. If the evidence packet still lists one as the highest-value player available, that means every remaining option is poor — recommend the best RB or WR instead and say plainly that the alternatives are all below replacement. The deterministic engine enforces these caps, so recommending past them guarantees your pick is overridden.
+
+COMPARING ACROSS POSITIONS
+Value is measured against each position's OWN replacement level, and those levels sit at very different point totals in this league — the replacement RB projects far more raw points than the replacement TE. Two players showing the same value therefore do NOT score the same in a FLEX slot. When the choice is for a FLEX or a bench spot, prefer the player with the higher raw projection; when it is for a dedicated positional slot, use value.
+
 THIS LEAGUE'S MARKET
 Ten seasons of this league's own drafts (all live, in person) show where it systematically departs from national ADP. These are league-wide facts, not one opponent's habit, and they hold every year:
 - QUARTERBACKS GO EARLY HERE, in a narrow window. By the end of round 3 this league has taken 3 QBs where national ADP predicts 1; by round 5 it is 5.5 versus 2. Then it stops — ten teams need ten starters and by round 9 everyone has one. National ADP implies a startable QB survives to round 7-8; in this league that is false. The QB window effectively closes in rounds 5-6. This compounds with the league's 6-point passing TDs, which already raise QB value above what the rankings assume.

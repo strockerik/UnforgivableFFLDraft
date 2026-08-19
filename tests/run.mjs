@@ -9,7 +9,8 @@ import { parseRows, findHeaderRow, normHeader, parseTable, num } from '../js/csv
 import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp, finalizePool } from '../js/players.js';
 import { replacementLevels, computeValues, biggestDisagreements } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
-import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs } from '../js/engine.js';
+import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
+         scoreCandidate, flexReplacementPoints } from '../js/engine.js';
 import { validateRecommendation, recommend, RECOMMENDATION_SCHEMA } from '../js/claude.js';
 import { parseStrategyDoc, applyTags } from '../js/strategy.js';
 import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
@@ -979,6 +980,83 @@ test('legacy saved settings migrate team names to coach names', () => {
   // Idempotent — running it again changes nothing.
   eq(migrated.draftOrder.map((n) => TEAM_TO_COACH[n] || n), ['Erik', 'Rob K.', 'Josh'],
     'second pass: ');
+});
+
+// ============================================================================
+group('engine.js — roster construction caps');
+
+test('flexReplacementPoints uses the best non-starting flex-eligible player', () => {
+  const levels = { RB: 26, WR: 35, TE: 12 };
+  const fake = [
+    ...Array.from({ length: 30 }, (_, i) => ({ pos: 'RB', projPoints: 300 - i * 5 })),
+    ...Array.from({ length: 40 }, (_, i) => ({ pos: 'WR', projPoints: 280 - i * 4 })),
+    ...Array.from({ length: 15 }, (_, i) => ({ pos: 'TE', projPoints: 200 - i * 5 })),
+  ];
+  // RB26 = 300 - 25*5 = 175; WR35 = 280 - 34*4 = 144; TE12 = 200 - 11*5 = 145.
+  eq(flexReplacementPoints(fake, levels), 175, 'should take the highest: ');
+});
+
+test('flexReplacementPoints returns null without projections', () => {
+  eq(flexReplacementPoints([{ pos: 'RB', projPoints: null }], { RB: 1 }), null);
+  eq(flexReplacementPoints([], { RB: 1 }), null);
+});
+
+test('a surplus QB scores below a bench receiver', () => {
+  // The bug this guards: VORP said a backup QB (+4) beat a bench WR, because
+  // QB replacement projects 304 points and WR replacement 152. He can never
+  // occupy the FLEX, so that comparison is meaningless.
+  const settings = { ...DEFAULT_SETTINGS };
+  const filled = [
+    { id: 'a', name: 'QB1', pos: 'QB', value: 60, projPoints: 360 },
+    { id: 'b', name: 'RB1', pos: 'RB', value: 90, projPoints: 265 },
+    { id: 'c', name: 'RB2', pos: 'RB', value: 60, projPoints: 235 },
+    { id: 'd', name: 'WR1', pos: 'WR', value: 50, projPoints: 202 },
+    { id: 'e', name: 'WR2', pos: 'WR', value: 40, projPoints: 192 },
+    { id: 'f', name: 'WR3', pos: 'WR', value: 30, projPoints: 182 },
+    { id: 'g', name: 'TE1', pos: 'TE', value: 30, projPoints: 164 },
+    { id: 'h', name: 'FLEXRB', pos: 'RB', value: 25, projPoints: 200 },
+  ];
+  const st = { settings, pool: filled, valueMode: 'projections',
+    picks: filled.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const analysis = rosterAnalysis(st);
+  const ctx = { analysis, position: draftPosition(99, settings), settings,
+    cliffs: {}, flexBaseline: 175 };
+  const qb2 = scoreCandidate({ name: 'QB2', pos: 'QB', value: 4, projPoints: 307 }, ctx);
+  const wr = scoreCandidate({ name: 'WR6', pos: 'WR', value: 11, projPoints: 163 }, ctx);
+  ok(wr > qb2, `bench WR (${wr.toFixed(1)}) must beat a backup QB (${qb2.toFixed(1)})`);
+});
+
+test('position caps are hard, not a weighting', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  // Two QBs and two TEs already rostered, starters otherwise full.
+  const roster = [
+    { id: 'q1', pos: 'QB', value: 60 }, { id: 'q2', pos: 'QB', value: 10 },
+    { id: 't1', pos: 'TE', value: 30 }, { id: 't2', pos: 'TE', value: 12 },
+    { id: 'r1', pos: 'RB', value: 90 }, { id: 'r2', pos: 'RB', value: 60 },
+    { id: 'w1', pos: 'WR', value: 50 }, { id: 'w2', pos: 'WR', value: 40 },
+    { id: 'w3', pos: 'WR', value: 30 }, { id: 'f1', pos: 'RB', value: 25 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(99, settings),
+    settings, cliffs: {}, flexBaseline: 175 };
+  // Even an outstanding third QB/TE must lose to a mediocre receiver.
+  const qb3 = scoreCandidate({ pos: 'QB', value: 80, projPoints: 400 }, ctx);
+  const te3 = scoreCandidate({ pos: 'TE', value: 80, projPoints: 240 }, ctx);
+  const wr = scoreCandidate({ pos: 'WR', value: -5, projPoints: 150 }, ctx);
+  ok(wr > qb3, `a 3rd QB must be unreachable (wr ${wr.toFixed(0)} vs qb ${qb3.toFixed(0)})`);
+  ok(wr > te3, `a 3rd TE must be unreachable (wr ${wr.toFixed(0)} vs te ${te3.toFixed(0)})`);
+});
+
+test('a cap never blocks filling a mandatory starter slot', () => {
+  // K and DST are capped at 1, but the endgame must still be able to fill an
+  // empty K slot in the final round.
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(150, settings),
+    settings, cliffs: {}, flexBaseline: 175 };
+  const k = scoreCandidate({ pos: 'K', value: 1, projPoints: 133 }, ctx);
+  ok(k > -1000, `an unfilled K slot must remain fillable, scored ${k.toFixed(0)}`);
 });
 
 // ============================================================================
