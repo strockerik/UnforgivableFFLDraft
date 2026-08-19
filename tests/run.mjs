@@ -1048,6 +1048,29 @@ test('position caps are hard, not a weighting', () => {
   ok(wr > te3, `a 3rd TE must be unreachable (wr ${wr.toFixed(0)} vs te ${te3.toFixed(0)})`);
 });
 
+test('the flex baseline is not double-penalised by depth heuristics', () => {
+  // Regression: a sixth WR scored -70 while a far worse RB scored -35, because
+  // the receiver collected the stacking penalty AND the surplus discount on
+  // top of a flex-baseline comparison that had already priced him correctly.
+  // Among surplus flex-eligible players, ordering must track raw points.
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60 }, { id: 'r1', pos: 'RB', value: 90 },
+    { id: 'r2', pos: 'RB', value: 60 }, { id: 'w1', pos: 'WR', value: 50 },
+    { id: 'w2', pos: 'WR', value: 45 }, { id: 'w3', pos: 'WR', value: 40 },
+    { id: 'w4', pos: 'WR', value: 20 }, { id: 'w5', pos: 'WR', value: 15 },
+    { id: 't1', pos: 'TE', value: 30 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(99, settings),
+    settings, cliffs: {}, flexBaseline: 175 };
+  // Sixth WR projecting MORE points than a spare RB must score higher.
+  const wr6 = scoreCandidate({ pos: 'WR', value: -7, projPoints: 145 }, ctx);
+  const rb3 = scoreCandidate({ pos: 'RB', value: -36, projPoints: 140 }, ctx);
+  ok(wr6 > rb3, `WR6 at 145 pts (${wr6.toFixed(1)}) must beat RB at 140 pts (${rb3.toFixed(1)})`);
+});
+
 test('a cap never blocks filling a mandatory starter slot', () => {
   // K and DST are capped at 1, but the endgame must still be able to fill an
   // empty K slot in the final round.

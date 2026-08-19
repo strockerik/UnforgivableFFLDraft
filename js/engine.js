@@ -185,7 +185,16 @@ export function scoreCandidate(player, ctx) {
   // replacement outranks a receiver barely above it.
   const have = analysis.counts[player.pos] || 0;
   const want = settings.roster[player.pos] || 0;
-  if (!fillsStarter && have >= want) {
+  // When the flex baseline is in play, marginal value is ALREADY measured
+  // correctly: the player is scored on raw points against the best man who
+  // would not start anywhere. Stacking a discount on top double-counts, and
+  // it double-counts unevenly — a sixth receiver was landing at -70 while a
+  // far worse running back scored -35, purely because the receiver collected
+  // two extra penalties the back did not. Only apply the heuristics when the
+  // principled comparison was unavailable.
+  const usedFlexBaseline = !fillsOwnSlot && flexComparable != null;
+
+  if (!fillsStarter && have >= want && !usedFlexBaseline) {
     // Applied to positive value only. Scaling a negative number toward zero
     // would make a bad player at a discounted position look BETTER, which is
     // exactly backwards.
@@ -196,7 +205,7 @@ export function scoreCandidate(player, ctx) {
     if (want <= 1) score -= SURPLUS_PENALTY[player.pos] ?? 0;
   }
   // And stop stacking a position covered several times over.
-  if (have >= want + 2) score -= 40 * (have - want - 1);
+  if (have >= want + 2 && !usedFlexBaseline) score -= 40 * (have - want - 1);
 
   // Hard cap. Large enough that no valuation can outbid it, but below the
   // endgame penalty so filling a mandatory starter slot still wins if the cap
