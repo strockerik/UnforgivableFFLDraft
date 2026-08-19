@@ -139,7 +139,14 @@ function playerRow(p, onDraft, opts = {}) {
     // Whole row is the target; the "+" stays as the visual affordance.
     onclick: (e) => { if (!e.target.closest('.inj-dot,.tag')) onDraft(p); },
   },
-    el('button', { class: 'draft-btn', title: `Draft ${p.name}`, onclick: () => onDraft(p) }, '+'),
+    // stopPropagation is load-bearing: the whole row is also a draft target,
+    // so without it a click on "+" runs onDraft twice and you get two
+    // confirmation dialogs for one pick.
+    el('button', {
+      class: 'draft-btn',
+      title: `Draft ${p.name}`,
+      onclick: (e) => { e.stopPropagation(); onDraft(p); },
+    }, '+'),
     el('div', { class: 'player-main' },
       el('div', { class: 'player-name' }, p.name, inj),
       el('div', { class: 'player-sub' },
@@ -243,7 +250,8 @@ function render() {
 
 function handleDraft(player) {
   const { who } = draftTarget();
-  if (state.settings.confirmEveryPick && !confirmDraft(player)) return;
+  // confirmDraft() honours the confirmEveryPick setting itself.
+  if (!confirmDraft(player)) return;
   const res = draftPlayer(player.id);
   if (!res.ok) { alert(res.error); return; }
   query = '';

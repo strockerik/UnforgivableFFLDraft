@@ -23,8 +23,16 @@ export function draftTarget() {
   };
 }
 
-/** Confirm before recording. Returns false if the user cancels. */
+/**
+ * Confirm before recording. Returns false only if the user cancels.
+ *
+ * The `confirmEveryPick` check lives HERE rather than at each call site. It
+ * used to be applied by the board and not by the recommendation panel, so
+ * switching the setting off silenced one path and not the other. Keeping the
+ * decision in one place is the only way the two stay honest.
+ */
 export function confirmDraft(player) {
+  if (!state.settings.confirmEveryPick) return true;
   const { pickNo, isMine, who } = draftTarget();
   const heading = isMine
     ? `Pick ${pickNo} — YOUR PICK`
