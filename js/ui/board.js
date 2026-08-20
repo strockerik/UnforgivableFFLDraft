@@ -38,7 +38,9 @@ const COLUMNS = [
   { key: 'adp', label: 'ADP', better: 'asc',
     tip: 'Average Draft Position — where the market actually drafts him. Someone still available well past his ADP is falling to you.' },
   { key: 'projPoints', label: 'PROJ', better: 'desc',
-    tip: 'Projected season fantasy points from FantasyPros. A raw total — it does not account for position scarcity, which is what VALUE adds.' },
+    tip: 'Projected season fantasy points, rebuilt from FantasyPros stat components under THIS league\'s scoring — 6-point passing TDs and −3 interceptions, not the published 4-point total. A raw number: it does not account for position scarcity, which is what VALUE adds.' },
+  { key: 'ecrSpread', label: 'RISK', better: 'asc',
+    tip: 'How far apart the most and least optimistic expert rank him. Low means the field agrees and the projection is trustworthy; high means it is a guess dressed as a number. Blank for K and DST, whose spread only reflects that most experts do not rank them.' },
 ];
 
 // 8. One loud signal per row. Risk tags outrank praise: a drafter needs

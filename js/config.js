@@ -20,7 +20,11 @@ export const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
 
 // The scoring rules a generic "Half-PPR" ranking assumes. Anything a league
 // does differently has to be corrected for, because the rankings can't know.
-export const BASELINE_SCORING = { passTd: 4, passInt: -2, reception: 0.5 };
+// Verified against FantasyPros' own projections, not assumed: rebuilding
+// `points_half` from the published stat components matches exactly at -1 per
+// interception and is off by exactly `pass_ints` at -2. The earlier -2 made
+// scoringDelta understate this league's -3 INT penalty by half.
+export const BASELINE_SCORING = { passTd: 4, passInt: -1, reception: 0.5 };
 
 export const DEFAULT_SETTINGS = {
   // Bumped whenever a LEAGUE FACT below changes (roster, bench, scoring,

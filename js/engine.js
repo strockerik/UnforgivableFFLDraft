@@ -443,6 +443,10 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       ecr: p.ecr,
       adp: p.adp,
       ecrVsAdp: p.ecrVsAdp,
+      // Best-to-worst expert rank gap. A wide spread means the projection is
+      // a guess dressed as a number, which is a different claim from "the
+      // analysts think he is overpriced" — the bust tags measure that.
+      expertRankSpread: p.ecrSpread,
     };
     // When projections are loaded, send both valuations plus their gap. The
     // gap is where a statistical forecast and the expert market disagree, and

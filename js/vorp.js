@@ -104,12 +104,67 @@ export function scoringAdjustments(rules) {
 }
 
 /**
+ * Exact league points from projected stat components.
+ *
+ * FantasyPros' `points_half` is computed at FOUR-point passing TDs and −2
+ * interceptions. This league pays six and −3, so using their figure quietly
+ * mis-ranks every quarterback relative to every other quarterback — the
+ * high-TD, low-interception arms are worth more here than the published total
+ * says, and the interception-prone ones less. Rebuilding from components is
+ * the only way to apply the league's own rules.
+ *
+ * Returns null when the components are absent, so callers fall back to the
+ * published total rather than inventing a number. Kickers and defences always
+ * fall back: their components (`fg`, `xpt`, `def_*`) cannot reconstruct custom
+ * scoring, and their scoring here is conventional anyway.
+ *
+ * NOT modelled: the league's per-game yardage bonuses. FantasyPros ships
+ * `rec_yds_100` / `pass_yds_300` counters but they are zero for everyone —
+ * Puka Nacua projects 1,539 receiving yards with `rec_yds_100: 0` — so there
+ * is nothing to read. Leaving them out costs every player roughly equally.
+ */
+export function leaguePoints(stats, rules) {
+  if (!stats || typeof stats !== 'object') return null;
+  const n = (k) => {
+    const v = Number(stats[k]);
+    return Number.isFinite(v) ? v : 0;
+  };
+  // Require at least one scoring component, or a defence's empty stat object
+  // would silently score zero and outrank real players.
+  const KEYS = ['pass_yds', 'pass_tds', 'rush_yds', 'rush_tds', 'rec_rec', 'rec_yds', 'rec_tds'];
+  if (!KEYS.some((k) => stats[k] != null)) return null;
+
+  const passTd = rules?.passTd ?? BASELINE_SCORING.passTd;
+  const passInt = rules?.passInt ?? BASELINE_SCORING.passInt;
+  const rec = rules?.reception ?? BASELINE_SCORING.reception;
+
+  return n('pass_yds') / 25 + n('pass_tds') * passTd + n('pass_ints') * passInt
+    + n('rush_yds') / 10 + n('rush_tds') * 6
+    + n('rec_rec') * rec + n('rec_yds') / 10 + n('rec_tds') * 6
+    + n('fumbles') * -2 + n('2pt_tds') * 2 + n('ret_tds') * 6;
+}
+
+/**
  * Annotate every player with `value` (VORP or its surrogate).
  * Returns the mode so callers can label it honestly.
  */
 export function computeValues(pool, settings) {
   const levels = replacementLevels(settings);
   const rules = settings.scoringRules;
+
+  // Re-score every player under THIS league's rules before anything reads
+  // projPoints. Done here rather than in the fetch layer because this is where
+  // settings live — so changing the scoring or team count and calling
+  // refreshPool() recomputes correctly instead of keeping a stale total.
+  // projPointsGeneric preserves the published figure so the difference stays
+  // auditable rather than silently replacing what the source said.
+  for (const p of pool) {
+    const exact = leaguePoints(p.projStats, rules);
+    if (exact == null) continue;
+    if (p.projPointsGeneric == null) p.projPointsGeneric = p.projPoints;
+    p.projPoints = Math.round(exact * 10) / 10;
+  }
+
   const usingProjections = pool.some((p) => p.projPoints != null);
 
   // Replacement-level projected points, when projections are loaded.

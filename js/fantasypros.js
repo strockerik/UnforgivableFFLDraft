@@ -39,6 +39,25 @@ function splitPos(raw, fallback) {
 
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
+/**
+ * The projection components league scoring is rebuilt from. Kept to an
+ * explicit list rather than storing the whole stats object: the payload also
+ * carries pre-scored totals and per-game bonus counters that are zero for
+ * everyone, and copying those into the pool invites someone using them later.
+ */
+const STAT_KEYS = ['pass_yds', 'pass_tds', 'pass_ints', 'rush_yds', 'rush_tds',
+  'rec_rec', 'rec_yds', 'rec_tds', 'fumbles', '2pt_tds', 'ret_tds'];
+
+function pickStats(stats) {
+  const out = {};
+  let any = false;
+  for (const k of STAT_KEYS) {
+    const v = num(stats[k]);
+    if (v != null) { out[k] = v; any = true; }
+  }
+  return any ? out : null;
+}
+
 function listOf(payload) {
   if (Array.isArray(payload)) return payload;
   for (const k of ['players', 'items', 'injuries', 'data']) {
@@ -145,7 +164,14 @@ export async function fetchPool({ proxyUrl, passphrase, season = '2026', scoring
       if (pts == null) continue;
       const { pos } = splitPos(r.position_id);
       const t = byId.get(r.fpid ?? r.player_id) || byNamePos.get(`${nameKey(r.name)}|${pos}`);
-      if (t) { t.projPoints = pts; n++; }
+      if (t) {
+        t.projPoints = pts;
+        // Keep the raw components so vorp.js can re-score under this league's
+        // rules. `points_half` assumes 4-point passing TDs, which is wrong
+        // here and mis-ranks the entire quarterback board.
+        t.projStats = pickStats(stats);
+        n++;
+      }
     }
     return `Projections for ${n} players.`;
   });

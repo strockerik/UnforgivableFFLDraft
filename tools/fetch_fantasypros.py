@@ -354,6 +354,23 @@ def merge_news(players, payload, per_player=2, max_chars=200):
 
 POINTS_KEY = {"HALF": "points_half", "PPR": "points_ppr", "STD": "points"}
 
+# Projection components the app rebuilds league scoring from. FantasyPros'
+# points_half assumes 4-point passing TDs; this league pays 6 with -3 INTs, so
+# the published total mis-ranks the whole quarterback board. Kept to an explicit
+# list because the payload also carries per-game bonus counters that are zero
+# for every player and must not be mistaken for usable data.
+STAT_KEYS = ("pass_yds", "pass_tds", "pass_ints", "rush_yds", "rush_tds",
+             "rec_rec", "rec_yds", "rec_tds", "fumbles", "2pt_tds", "ret_tds")
+
+
+def pick_stats(stats):
+    out = {}
+    for k in STAT_KEYS:
+        v = as_num(stats.get(k))
+        if v is not None:
+            out[k] = v
+    return out or None
+
 
 def merge_adp(players, payload, scoring):
     """ADP lives on /nfl/players as rank_adp (standard) / rank_adp_ppr."""
@@ -404,6 +421,7 @@ def merge_projections(players, proj_payload, scoring="HALF"):
 
         if target:
             target["projPoints"] = pts
+            target["projStats"] = pick_stats(stats)
             matched += 1
         elif name:
             unmatched.append(name)

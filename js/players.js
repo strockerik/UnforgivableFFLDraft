@@ -255,6 +255,18 @@ export function finalizePool(players) {
   for (const p of pool) {
     counters[p.pos] = (counters[p.pos] || 0) + 1;
     if (p.posRank == null) p.posRank = counters[p.pos];
+
+    // How far apart the most and least optimistic expert rank him. Wide means
+    // the projection is a guess dressed as a number; tight means the field
+    // agrees. This is downloaded on every refresh and was previously unused.
+    //
+    // Deliberately null for K and DST: their spread runs 180-200 purely
+    // because most experts do not rank them at all, which reads as extreme
+    // uncertainty when it is really absent data.
+    p.ecrSpread = (p.pos === 'K' || p.pos === 'DST'
+      || p.ecrBest == null || p.ecrWorst == null)
+      ? null
+      : p.ecrWorst - p.ecrBest;
   }
 
   return { pool, warnings };
