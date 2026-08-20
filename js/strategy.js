@@ -72,6 +72,12 @@ export function parseStrategyDoc(text) {
           confidence: t.confidence || null,
           note: t.note ? String(t.note).slice(0, MAX_NOTE) : null,
           asOf: t.asOf || null,
+          // How many independent analyst lists agreed, when the document says.
+          // Coerced through Number so a string in the JSON still works, and
+          // dropped entirely if it is not a finite number — a NaN would render
+          // as "bust NaN/8" on the board.
+          sources: Number.isFinite(Number(t.sources)) ? Number(t.sources) : null,
+          sourcesOf: Number.isFinite(Number(t.sourcesOf)) ? Number(t.sourcesOf) : null,
         });
       }
     }
@@ -99,6 +105,8 @@ export function applyTags(pool, tags) {
     delete p.tags;
     delete p.tagNote;
     delete p.tagConfidence;
+    delete p.tagSources;
+    delete p.tagSourcesOf;
   }
 
   let matched = 0;
@@ -114,6 +122,11 @@ export function applyTags(pool, tags) {
     target.tags = t.tags;
     target.tagNote = t.note;
     target.tagConfidence = t.confidence;
+    // How many independent analyst lists flagged him. Kept as a number rather
+    // than parsed back out of the note at render time — "7 of 8 bust lists"
+    // is prose, and prose is a bad place to store a quantity.
+    if (t.sources != null) target.tagSources = t.sources;
+    if (t.sourcesOf != null) target.tagSourcesOf = t.sourcesOf;
     matched++;
   }
 

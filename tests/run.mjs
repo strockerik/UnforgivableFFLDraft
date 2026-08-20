@@ -880,6 +880,70 @@ await expectKind({ authMode: 'proxy', proxyUrl: 'https://x.dev', model: 'claude-
 await expectKind({ authMode: 'direct', model: 'claude-opus-5' },
   'no-key', 'direct mode without an API key fails before any request');
 
+test('a tag record carries its analyst source count through the parser', () => {
+  // Regression: parseStrategyDoc rebuilds each record field by field, so a new
+  // field is silently dropped unless it is added there too. The count reached
+  // the document and the board code and still rendered "bust undefined/undefined".
+  const doc = parseStrategyDoc([
+    'Prose.', '', '```json',
+    JSON.stringify({ players: [
+      { name: 'Someone Real', pos: 'RB', team: 'SF', tags: ['bust'],
+        confidence: 'high', note: 'n', sources: 7, sourcesOf: 8 },
+    ] }),
+    '```',
+  ].join('\n'));
+  eq(doc.tags[0].sources, 7, 'sources: ');
+  eq(doc.tags[0].sourcesOf, 8, 'sourcesOf: ');
+});
+
+test('a non-numeric source count is dropped rather than rendered as NaN', () => {
+  const doc = parseStrategyDoc([
+    'Prose.', '', '```json',
+    JSON.stringify({ players: [
+      { name: 'A', pos: 'RB', tags: ['bust'], sources: 'lots', sourcesOf: 8 },
+      { name: 'B', pos: 'WR', tags: ['bust'] },
+    ] }),
+    '```',
+  ].join('\n'));
+  eq(doc.tags[0].sources, null, 'garbage becomes null, not NaN: ');
+  eq(doc.tags[1].sources, null, 'absent stays null: ');
+});
+
+test('source counts attach to players and clear on reload', () => {
+  const p = [{ id: 'x', name: 'Someone Real', pos: 'RB', team: 'SF', value: 10 }];
+  const tags = [{ name: 'Someone Real', pos: 'RB', team: 'SF', tags: ['bust'],
+                  confidence: 'high', note: 'n', sources: 7, sourcesOf: 8 }];
+  applyTags(p, tags);
+  eq(p[0].tagSources, 7);
+  eq(p[0].tagSourcesOf, 8);
+  // Reloading a document that no longer flags him must not leave a stale count.
+  applyTags(p, [{ name: 'Someone Real', pos: 'RB', team: 'SF', tags: ['breakout'] }]);
+  eq(p[0].tags, ['breakout']);
+  eq(p[0].tagSources, undefined, 'stale count must be cleared: ');
+});
+
+test('the real strategy document gives every bust tag a source count', () => {
+  // A bust chip with no count renders bare, which is the thing we set out to
+  // fix — so this asserts against the actual shipped document.
+  const doc = parseStrategyDoc(slurp('data/strategy.md'));
+  const busts = doc.tags.filter((t) => t.tags.includes('bust'));
+  ok(busts.length >= 16, `expected 16+ bust tags, found ${busts.length}`);
+  const bare = busts.filter((t) => t.sources == null).map((t) => t.name);
+  eq(bare, [], 'every bust tag needs a count: ');
+  const overOne = busts.filter((t) => t.sources > t.sourcesOf).map((t) => t.name);
+  eq(overOne, [], 'no count may exceed the number of sources surveyed: ');
+});
+
+test('Josh Allen carries no bust tag despite appearing on two lists', () => {
+  // The rejection filter is the load-bearing part of the bust research: both
+  // lists argue "QB is deep, wait", which is calibrated to 4-point passing TDs.
+  // This league pays 6, where he is QB1 by ~48 points.
+  const doc = parseStrategyDoc(slurp('data/strategy.md'));
+  const allen = doc.tags.find((t) => t.name === 'Josh Allen');
+  ok(allen, 'Josh Allen should still be tagged');
+  ok(!allen.tags.includes('bust'), `expected no bust tag, got ${JSON.stringify(allen.tags)}`);
+});
+
 // ============================================================================
 group('opponent model (js/coaches.js)');
 

@@ -411,6 +411,9 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       b.tags = p.tags;
       if (p.tagNote) b.tagNote = p.tagNote;
       if (p.tagConfidence) b.tagConfidence = p.tagConfidence;
+      // The count matters more than the label: a 7-of-8 bust call and a
+      // 2-of-8 one are different claims about how much risk analysts see.
+      if (p.tagSources != null) b.tagSources = `${p.tagSources} of ${p.tagSourcesOf} analyst lists`;
     }
     // Injury and news only ride along when present, so a pool without them
     // costs nothing in the packet.

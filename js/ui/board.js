@@ -49,6 +49,29 @@ const TAG_PRIORITY = [
 ];
 const MAX_TAGS_SHOWN = 2;
 
+/**
+ * A strategy tag, carrying how many analysts agreed when that is known.
+ *
+ * A bust call from seven of eight lists and one from two of eight are very
+ * different pieces of information, and they used to render identically. The
+ * COUNT is the signal and it is printed, not encoded in shading — a heavier
+ * border is a secondary cue only, so this survives greyscale printing and
+ * colourblind viewing exactly like the position chips do.
+ */
+function tagChip(tag, player) {
+  const n = player.tagSources;
+  const of = player.tagSourcesOf;
+  const strong = n != null && of != null && n / of >= 0.5;
+  if (tag !== 'bust' || n == null) {
+    return el('span', { class: `tag strat strat-${tag}` }, tag);
+  }
+  return el('span', {
+    class: `tag strat strat-${tag}` + (strong ? ' strat-strong' : ''),
+    title: `${n} of ${of} analyst bust lists flagged him`
+      + `${strong ? ' — majority view' : ' — minority view'}`,
+  }, tag, el('span', { class: 'tag-count' }, `${n}/${of}`));
+}
+
 function rankedTags(tags) {
   return [...tags].sort((a, b) => {
     const ai = TAG_PRIORITY.indexOf(a), bi = TAG_PRIORITY.indexOf(b);
@@ -153,7 +176,7 @@ function playerRow(p, onDraft, opts = {}) {
         el('span', { class: 'player-meta' }, p.team || '—'),
         shownTags.length
           ? el('span', { class: 'player-tags', title: tagTitle },
-              shownTags.map((t) => el('span', { class: `tag strat strat-${t}` }, t)),
+              shownTags.map((t) => tagChip(t, p)),
               hiddenTags.length ? el('span', { class: 'tag strat-more' }, `+${hiddenTags.length}`) : null)
           : null,
       ),

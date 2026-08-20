@@ -408,3 +408,11 @@ body {
 .chip-thin { border-color: var(--warn); }
 .chip-thin .chip-count { color: var(--warn-ink); font-weight: 800; }
 .chip.active.chip-thin .chip-count { color: #fff; }
+
+/* Consensus strength on a bust chip. The printed count is the signal; the
+   heavier border is a secondary cue, so the meaning survives greyscale. */
+.tag-count {
+  margin-left: 0.28rem; font-variant-numeric: tabular-nums;
+  font-weight: 800; opacity: 0.85;
+}
+.strat-strong { box-shadow: inset 0 0 0 1px currentColor; }
