@@ -65,6 +65,13 @@ export const DEFAULT_SETTINGS = {
   // as on by accident — recording a real draft with this enabled would have
   // the app drafting over your league-mates' actual picks.
   mockDraft: false,
+  // How many high-upside "sleeper" players (tagged in data/strategy.md) to
+  // guarantee on the roster. Applied only AFTER the starting lineup is full,
+  // and it will give up at most ~25 points of expected value to land one.
+  // On a bench that is a good trade: a replacement-level backup contributes
+  // almost nothing, while a lottery ticket has option value that expected
+  // points cannot express. Set to 0 to disable.
+  sleeperQuota: 1,
   // Refresh the board from FantasyPros when the app opens, if the cached copy
   // is older than this. Rankings move daily in preseason and hourly on draft
   // morning; a stale board is the quiet failure.

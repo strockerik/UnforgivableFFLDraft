@@ -1071,6 +1071,60 @@ test('the flex baseline is not double-penalised by depth heuristics', () => {
   ok(wr6 > rb3, `WR6 at 145 pts (${wr6.toFixed(1)}) must beat RB at 140 pts (${rb3.toFixed(1)})`);
 });
 
+test('the upside quota lifts a sleeper only once starters are full', () => {
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  const sleeper = { pos: 'RB', value: -36, projPoints: 140, tags: ['sleeper'] };
+  const plain = { pos: 'RB', value: -20, projPoints: 155 };
+
+  // Starters NOT full: the sleeper must not jump a better player.
+  const empty = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const early = { analysis: rosterAnalysis(empty), position: draftPosition(5, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: true };
+  ok(scoreCandidate(plain, early) > scoreCandidate(sleeper, early),
+    'upside must not outrank value while a starting slot is open');
+
+  // Starters full: now the bonus applies.
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60 }, { id: 'r1', pos: 'RB', value: 90 },
+    { id: 'r2', pos: 'RB', value: 60 }, { id: 'w1', pos: 'WR', value: 50 },
+    { id: 'w2', pos: 'WR', value: 45 }, { id: 'w3', pos: 'WR', value: 40 },
+    { id: 't1', pos: 'TE', value: 30 }, { id: 'f1', pos: 'RB', value: 25 },
+  ];
+  const full = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const late = { analysis: rosterAnalysis(full), position: draftPosition(99, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: true };
+  ok(scoreCandidate(sleeper, late) > scoreCandidate(plain, late),
+    'on a full bench the lottery ticket should win');
+
+  // Quota already met -> no bonus, value wins again.
+  const met = { ...late, wantsUpside: false };
+  ok(scoreCandidate(plain, met) > scoreCandidate(sleeper, met),
+    'once the quota is met the bonus must stop applying');
+});
+
+test('the upside bonus is bounded and never reaches a kicker', () => {
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60 }, { id: 'r1', pos: 'RB', value: 90 },
+    { id: 'r2', pos: 'RB', value: 60 }, { id: 'w1', pos: 'WR', value: 50 },
+    { id: 'w2', pos: 'WR', value: 45 }, { id: 'w3', pos: 'WR', value: 40 },
+    { id: 't1', pos: 'TE', value: 30 }, { id: 'f1', pos: 'RB', value: 25 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(99, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: true };
+  // A far better player must still win — the bonus buys a ticket, not a bad roster.
+  const great = { pos: 'RB', value: 40, projPoints: 220 };
+  const sleeper = { pos: 'RB', value: -36, projPoints: 140, tags: ['sleeper'] };
+  ok(scoreCandidate(great, ctx) > scoreCandidate(sleeper, ctx),
+    'a clearly better player must not be displaced by the upside bonus');
+  // A tagged kicker must stay suppressed (Harrison Mevis carries the tag).
+  const k = { pos: 'K', value: 5, projPoints: 136, tags: ['sleeper'] };
+  ok(scoreCandidate(k, ctx) < -500, 'a tagged kicker must remain gated to the last rounds');
+});
+
 test('a cap never blocks filling a mandatory starter slot', () => {
   // K and DST are capped at 1, but the endgame must still be able to fill an
   // empty K slot in the final round.

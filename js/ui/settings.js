@@ -436,6 +436,32 @@ function render() {
       el('p', { class: 'field-hint' },
         'Prose guidance goes into the cached system prompt; player tags attach to the board. ',
         'Reload any time — it is safe mid-draft and replaces the previous version rather than adding to it.'),
+      field('Guaranteed upside picks', el('select', {
+        onchange: (e) => setSettings({ sleeperQuota: Number(e.target.value) }),
+      }, [0, 1, 2, 3].map((n) => el('option', {
+        value: String(n), selected: (s.sleeperQuota ?? 1) === n,
+      }, n === 0 ? 'None — pure value' : `${n} sleeper${n > 1 ? 's' : ''}`))),
+        'Guarantees this many players tagged "sleeper" in your strategy document. '
+        + 'Only ever applied after your starting lineup is full, and it gives up at '
+        + 'most ~25 points of value to land one — on a bench that is a good trade, '
+        + 'since a replacement-level backup is worth close to nothing anyway.'),
+      (() => {
+        // Surface whether the quota can actually be met, rather than failing
+        // silently on a document with no sleeper tags.
+        const q = s.sleeperQuota ?? 1;
+        if (!q) return null;
+        const tagged = state.pool.filter((p) => (p.tags || []).includes('sleeper')).length;
+        const held = state.pool.filter((p) => (p.tags || []).includes('sleeper')
+          && state.picks.some((pk) => pk.playerId === p.id
+            && pk.teamSlot === state.settings.slot)).length;
+        if (!state.pool.length) return null;
+        return tagged
+          ? el('p', { class: 'field-hint' },
+              `${tagged} player(s) on the board carry a "sleeper" tag — ${held} on your roster.`)
+          : el('p', { class: 'field-hint warn-inline' },
+              'No player on the board carries a "sleeper" tag, so this quota cannot be met. '
+              + 'Add them to the JSON block in your strategy document.');
+      })(),
       el('div', { class: 'row' },
         el('button', { class: 'btn primary-outline', onclick: loadStrategyFile }, 'Reload data/strategy.md'),
         field('or pick a file', el('input', {

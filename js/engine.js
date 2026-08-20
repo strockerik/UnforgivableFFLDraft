@@ -134,6 +134,24 @@ const SURPLUS_PENALTY = { QB: 30, TE: 18, DST: 40, K: 40 };
  */
 const POSITION_CAPS = { QB: 2, TE: 2, K: 1, DST: 1 };
 
+/** Strategy-document tag that marks a high-variance, high-upside player. */
+export const UPSIDE_TAG = 'sleeper';
+
+/**
+ * How much value the engine will give up to land one upside player, in VORP
+ * points, once the starting lineup is already filled.
+ *
+ * The justification is not sentiment. VORP measures EXPECTED points, and on a
+ * bench that is the wrong statistic: a replacement-level backup contributes
+ * almost nothing in any week he is not started, so his expected value and his
+ * realistic value are both near zero. A high-variance player with a small
+ * chance of becoming a starter carries option value that an expectation cannot
+ * express. Paying ~25 points of expectation for that is a good trade on a
+ * bench slot and a terrible one on a starting slot, which is exactly why this
+ * only applies after the starters are filled.
+ */
+const UPSIDE_BONUS = 25;
+
 export function scoreCandidate(player, ctx) {
   const { analysis, position, settings, cliffs, flexBaseline } = ctx;
   const progress = position.round / settings.rounds;
@@ -213,6 +231,16 @@ export function scoreCandidate(player, ctx) {
   const cap = POSITION_CAPS[player.pos];
   if (cap != null && have >= cap && !fillsOwnSlot) score -= 2000;
 
+  // Upside quota. Only once the starting lineup is full, never at a kicker or
+  // defence, and never enough to outrank a genuinely better player by more
+  // than UPSIDE_BONUS — it buys a lottery ticket, it does not buy a bad roster.
+  if (ctx.wantsUpside
+      && !fillsStarter
+      && player.pos !== 'K' && player.pos !== 'DST'
+      && Array.isArray(player.tags) && player.tags.includes(UPSIDE_TAG)) {
+    score += UPSIDE_BONUS;
+  }
+
   // Kickers and defenses in round 3 lose leagues. Gate them on picks
   // remaining rather than round number: they are fungible and always
   // available, so you take them only when the picks left are exactly the ones
@@ -248,8 +276,14 @@ export function evaluate(state, available) {
   const cliffs = tierCliffs(available);
   const runs = positionRuns(state);
   const levels = replacementLevels(settings);
+  // Upside quota: how many tagged sleepers the user wants, minus how many are
+  // already rostered. Zero disables it entirely.
+  const quota = settings.sleeperQuota ?? 0;
+  const haveUpside = analysis.roster.filter(
+    (p) => Array.isArray(p.tags) && p.tags.includes(UPSIDE_TAG)).length;
   const ctx = { analysis, position, settings, cliffs,
-    flexBaseline: flexReplacementPoints(state.pool, levels) };
+    flexBaseline: flexReplacementPoints(state.pool, levels),
+    wantsUpside: haveUpside < quota };
 
   const ranked = available
     .map((p) => ({ player: p, score: scoreCandidate(p, ctx) }))
