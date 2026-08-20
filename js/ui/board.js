@@ -203,18 +203,33 @@ function render() {
   });
 
   // Remaining count per position — the "is RB about to run dry" signal.
+  //
+  // The number shown is players still ABOVE REPLACEMENT, not the raw pool.
+  // Raw counts actively mislead: at one point there were 189 tight ends on
+  // the board and exactly 11 of them were startable, which reads as depth
+  // when it is a cliff. The raw figure stays in the tooltip.
   const counts = {};
-  for (const p of available) counts[p.pos] = (counts[p.pos] || 0) + 1;
+  const startable = {};
+  for (const p of available) {
+    counts[p.pos] = (counts[p.pos] || 0) + 1;
+    if ((p.value ?? 0) > 0) startable[p.pos] = (startable[p.pos] || 0) + 1;
+  }
+  const totalStartable = Object.values(startable).reduce((a, b) => a + b, 0);
 
   const filters = el('div', { class: 'filters' },
-    ['ALL', ...POSITIONS].map((pos) =>
-      el('button', {
-        class: 'chip' + (filter === pos ? ' active' : ''),
-        title: pos === 'ALL' ? 'All positions' : `${counts[pos] || 0} ${pos} still available`,
+    ['ALL', ...POSITIONS].map((pos) => {
+      const above = pos === 'ALL' ? totalStartable : (startable[pos] || 0);
+      const raw = pos === 'ALL' ? available.length : (counts[pos] || 0);
+      return el('button', {
+        class: 'chip' + (filter === pos ? ' active' : '')
+          + (pos !== 'ALL' && above > 0 && above <= 3 ? ' chip-thin' : ''),
+        title: pos === 'ALL'
+          ? `${above} players above replacement, ${raw} on the board`
+          : `${above} ${pos} above replacement — ${raw} on the board in total. `
+            + 'The count shown is the startable one; the rest are replacement level.',
         onclick: () => { filter = pos; render(); },
-      }, pos,
-        el('span', { class: 'chip-count' },
-          pos === 'ALL' ? String(available.length) : String(counts[pos] || 0)))));
+      }, pos, el('span', { class: 'chip-count' }, String(above)));
+    }));
 
   // Tier separators only mean something while the list is in a tier-ordered
   // sequence. Under an alphabetical or bye sort the boundaries are noise.

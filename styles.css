@@ -402,3 +402,9 @@ body {
 .conf-high { color: var(--good-ink); border-color: var(--good); }
 .conf-medium { color: var(--warn-ink); border-color: var(--warn); }
 .conf-low { color: var(--bad-ink); border-color: var(--bad); border-style: dashed; }
+
+/* A position down to its last few startable players. Colour is a secondary
+   cue — the number itself is the signal, so this survives greyscale. */
+.chip-thin { border-color: var(--warn); }
+.chip-thin .chip-count { color: var(--warn-ink); font-weight: 800; }
+.chip.active.chip-thin .chip-count { color: #fff; }
