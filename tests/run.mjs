@@ -7,7 +7,7 @@
 
 import { parseRows, findHeaderRow, normHeader, parseTable, num } from '../js/csv.js';
 import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp, finalizePool } from '../js/players.js';
-import { replacementLevels, computeValues, biggestDisagreements } from '../js/vorp.js';
+import { replacementLevels, computeValues, biggestDisagreements, leaguePoints } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
          scoreCandidate, flexReplacementPoints } from '../js/engine.js';
@@ -1198,6 +1198,80 @@ test('a cap never blocks filling a mandatory starter slot', () => {
     settings, cliffs: {}, flexBaseline: 175 };
   const k = scoreCandidate({ pos: 'K', value: 1, projPoints: 133 }, ctx);
   ok(k > -1000, `an unfilled K slot must remain fillable, scored ${k.toFixed(0)}`);
+});
+
+// ============================================================================
+group('vorp.js — league scoring from projection components');
+
+test('leaguePoints reproduces the published half-PPR total under baseline rules', () => {
+  // Puka Nacua, straight from the API: 1539/10 + 9*6 + 117*0.5 + 85/10
+  // + 1.39*6 - 0.98*2 = 281.3, matching its own points_half exactly.
+  const stats = { rec_rec: 117, rec_yds: 1539, rec_tds: 9, rush_yds: 85,
+                  rush_tds: 1.39, fumbles: 0.98, '2pt_tds': 0, ret_tds: 0 };
+  const pts = leaguePoints(stats, BASELINE_SCORING);
+  ok(Math.abs(pts - 281.3) < 0.1, `expected ~281.3, got ${pts.toFixed(2)}`);
+});
+
+test('the baseline scores an interception at -1, as FantasyPros does', () => {
+  // Verified empirically: rebuilding points_half matches at -1 and is off by
+  // exactly pass_ints at -2. Getting this wrong halved the -3 adjustment.
+  eq(BASELINE_SCORING.passInt, -1);
+  const stats = { pass_yds: 4000, pass_tds: 30, pass_ints: 10 };
+  const base = leaguePoints(stats, BASELINE_SCORING);
+  const league = leaguePoints(stats, { passTd: 6, passInt: -3, reception: 0.5 });
+  // +2/TD on 30 TDs = +60; -2/INT on 10 INTs = -20. Net +40.
+  ok(Math.abs((league - base) - 40) < 0.01, `expected +40, got ${(league - base).toFixed(2)}`);
+});
+
+test('six-point passing TDs move QBs and leave receivers untouched', () => {
+  const qb = { pass_yds: 4000, pass_tds: 30, pass_ints: 10, rush_yds: 300, rush_tds: 4 };
+  const wr = { rec_rec: 100, rec_yds: 1300, rec_tds: 8 };
+  const rules = { passTd: 6, passInt: -3, reception: 0.5 };
+  ok(leaguePoints(qb, rules) > leaguePoints(qb, BASELINE_SCORING), 'QB must gain');
+  eq(leaguePoints(wr, rules), leaguePoints(wr, BASELINE_SCORING), 'WR must not move: ');
+});
+
+test('missing or unusable components fall back rather than scoring zero', () => {
+  eq(leaguePoints(null, BASELINE_SCORING), null, 'null stats: ');
+  eq(leaguePoints({}, BASELINE_SCORING), null, 'empty stats: ');
+  // A defence's stat object has no scoring components we can use; returning 0
+  // would rank every DST above real players.
+  eq(leaguePoints({ def_sack: 40, def_int: 12 }, BASELINE_SCORING), null, 'DST stats: ');
+  eq(leaguePoints({ fg: 30, fga: 34, xpt: 40 }, BASELINE_SCORING), null, 'K stats: ');
+});
+
+test('computeValues re-scores from components and keeps the published figure', () => {
+  const pool = [
+    { id: 'q', name: 'Q', pos: 'QB', posRank: 1, projPoints: 300,
+      projStats: { pass_yds: 4000, pass_tds: 30, pass_ints: 10 } },
+    { id: 'w', name: 'W', pos: 'WR', posRank: 1, projPoints: 200,
+      projStats: { rec_rec: 100, rec_yds: 1300, rec_tds: 8 } },
+  ];
+  computeValues(pool, DEFAULT_SETTINGS);
+  const qb = pool[0];
+  ok(qb.projPointsGeneric === 300, 'published figure preserved');
+  ok(qb.projPoints !== 300, 'projPoints re-scored under league rules');
+  ok(qb.projPoints > 300, `6-pt TDs should raise him, got ${qb.projPoints}`);
+});
+
+test('a player with no components keeps the published projection', () => {
+  const pool = [{ id: 'x', name: 'X', pos: 'RB', posRank: 1, projPoints: 210, projStats: null }];
+  computeValues(pool, DEFAULT_SETTINGS);
+  eq(pool[0].projPoints, 210, 'untouched: ');
+});
+
+test('finalizePool computes expert spread and blanks it for K and DST', () => {
+  const { pool } = finalizePool([
+    { id: 'a', name: 'A', pos: 'WR', ecr: 1, ecrBest: 3, ecrWorst: 40 },
+    { id: 'b', name: 'B', pos: 'K', ecr: 2, ecrBest: 107, ecrWorst: 314 },
+    { id: 'c', name: 'C', pos: 'DST', ecr: 3, ecrBest: 120, ecrWorst: 311 },
+    { id: 'd', name: 'D', pos: 'RB', ecr: 4, ecrBest: null, ecrWorst: 90 },
+  ]);
+  const by = Object.fromEntries(pool.map((p) => [p.name, p]));
+  eq(by.A.ecrSpread, 37, 'skill player: ');
+  eq(by.B.ecrSpread, null, 'kicker spread is absent data, not uncertainty: ');
+  eq(by.C.ecrSpread, null, 'defence: ');
+  eq(by.D.ecrSpread, null, 'missing bound: ');
 });
 
 // ============================================================================

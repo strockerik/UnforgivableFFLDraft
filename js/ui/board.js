@@ -242,6 +242,10 @@ function render() {
   const totalStartable = Object.values(startable).reduce((a, b) => a + b, 0);
 
   const filters = el('div', { class: 'filters' },
+    // Without this caption the chips read as a broken filter: "ALL 29" sitting
+    // next to a header saying "787 left" looks like the board lost players.
+    el('span', { class: 'filter-caption', title: 'Chip numbers count players still projected above replacement level, not the raw pool. A position at 0 has nobody startable left.' },
+      'startable left:'),
     ['ALL', ...POSITIONS].map((pos) => {
       const above = pos === 'ALL' ? totalStartable : (startable[pos] || 0);
       const raw = pos === 'ALL' ? available.length : (counts[pos] || 0);

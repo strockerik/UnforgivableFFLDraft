@@ -417,3 +417,11 @@ body {
   font-weight: 800; opacity: 0.85;
 }
 .strat-strong { box-shadow: inset 0 0 0 1px currentColor; }
+
+/* Explains the filter-chip numbers. Without it "ALL 29" beside a "787 left"
+   header reads as a broken filter rather than a scarcity signal. */
+.filter-caption {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted); align-self: center;
+  margin-right: 0.1rem; white-space: nowrap;
+}
