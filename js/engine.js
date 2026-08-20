@@ -484,6 +484,14 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     },
     // Opponent model. Empty when no history exists for these names, which is
     // the correct behaviour on a draft order of strangers.
+    //
+    // The count and the exhaustive flag are stated explicitly because a list
+    // alone gets misread: given two upcoming picks by one coach with a WR and
+    // an RB habit, the model concluded that "2 WRs and 2 RBs" would disappear
+    // and worried about a nonexistent "third pick". Two picks remove exactly
+    // two players, and at a turn the list is often shorter than it feels.
+    picksBeforeYourNextTurn: upcoming.length,
+    opponentsListIsExhaustive: true,
     opponentsBeforeYourNextPick: upcoming
       .filter((u) => u.coach)
       .map((u) => ({
