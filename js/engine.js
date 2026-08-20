@@ -151,6 +151,38 @@ const POSITION_CAPS = { QB: 2, TE: 2, K: 1, DST: 1 };
  */
 const BYE_PENALTY = { 2: 0, 3: 12, 4: 30 };
 
+/**
+ * Credit in VORP points for the FIRST backup at a single-slot position whose
+ * starter has an uncovered bye week.
+ *
+ * The flex baseline scores a surplus player on raw points, which answers "who
+ * scores more in a FLEX slot" and is blind to whether a slot can be filled at
+ * all. With one tight end and no backup, his bye week is a guaranteed zero at
+ * that slot — and an eighth receiver cannot fill it, however many points he
+ * projects. Mark Andrews at 137 raw points reads worse than a seventh receiver
+ * at 145 and is worth far more, because only one of them can start in week 10.
+ *
+ * Bounded like the rest: enough to lift a backup over a replacement-level body
+ * at a position already stacked, never enough to take one over a real starter.
+ * Paid once — the second backup covers nothing new, and POSITION_CAPS stops
+ * the third.
+ *
+ * Position-specific, because the two single-slot positions are not alike. A
+ * tight end reaches the board through the flex-baseline comparison, which
+ * strips the surplus penalty, so he needs the full credit to clear a
+ * replacement-level receiver.
+ *
+ * Quarterback gets nothing, deliberately. The strategy document says "if you
+ * land a Tier 1/2 QB, you do not need a second", and a one-week bye is the
+ * easiest hole in fantasy to stream. At a token credit of 5 the board put
+ * Brock Purdy at -18.0 against Mark Andrews at -18.6 — a coin flip decided by
+ * rounding, on a choice the document already answers. The self-regulating part
+ * still works: if the user had punted QB instead of taking Allen, a mid-tier
+ * QB2 would carry real VORP and clear the -30 surplus penalty on merit rather
+ * than on a subsidy.
+ */
+const BYE_COVER_CREDIT = { TE: 20 };
+
 /** Strategy-document tag that marks a high-variance, high-upside player. */
 export const UPSIDE_TAG = 'sleeper';
 
@@ -275,6 +307,18 @@ export function scoreCandidate(player, ctx) {
         const would = Math.min(sharing + 1, 4);
         score -= (BYE_PENALTY[would] ?? 0) * aversion;
       }
+    }
+  }
+
+  // Bye insurance for a single-slot starter who has none. Kickers and defences
+  // are excluded: you stream those, so their bye is a non-event.
+  if (!fillsStarter && want <= 1 && have === want && player.bye != null
+      && player.pos !== 'K' && player.pos !== 'DST') {
+    const starter = (analysis.slots[player.pos] || [])[0];
+    // A backup sharing the starter's bye covers nothing — both are out
+    // together, which is the one case where this credit would be a lie.
+    if (starter && starter.bye != null && starter.bye !== player.bye) {
+      score += (BYE_COVER_CREDIT[player.pos] ?? 0) * (settings.byeCoverCredit ?? 1);
     }
   }
 

@@ -1189,6 +1189,80 @@ test('the upside bonus is bounded and never reaches a kicker', () => {
   ok(scoreCandidate(k, ctx) < -500, 'a tagged kicker must remain gated to the last rounds');
 });
 
+test('the first TE backup is credited when the starter bye is uncovered', () => {
+  // The flex baseline scores a surplus TE on raw points and is blind to
+  // whether the slot can be filled at all. An eighth receiver cannot start in
+  // the week your only tight end is out.
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60, bye: 7 }, { id: 'r1', pos: 'RB', value: 90, bye: 5 },
+    { id: 'r2', pos: 'RB', value: 60, bye: 6 }, { id: 'w1', pos: 'WR', value: 50, bye: 3 },
+    { id: 'w2', pos: 'WR', value: 45, bye: 4 }, { id: 'w3', pos: 'WR', value: 40, bye: 8 },
+    { id: 't1', pos: 'TE', value: 30, bye: 10 }, { id: 'f1', pos: 'RB', value: 25, bye: 9 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(119, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false };
+  const te = { pos: 'TE', value: 0, projPoints: 137, bye: 13 };
+  const wr = { pos: 'WR', value: -7, projPoints: 145, bye: 11 };
+  ok(scoreCandidate(te, ctx) > scoreCandidate(wr, ctx),
+    'a TE2 covering the bye must beat a replacement-level 8th receiver');
+});
+
+test('a backup sharing the starter bye is credited nothing', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60, bye: 7 }, { id: 'r1', pos: 'RB', value: 90, bye: 5 },
+    { id: 'r2', pos: 'RB', value: 60, bye: 6 }, { id: 'w1', pos: 'WR', value: 50, bye: 3 },
+    { id: 'w2', pos: 'WR', value: 45, bye: 4 }, { id: 'w3', pos: 'WR', value: 40, bye: 8 },
+    { id: 't1', pos: 'TE', value: 30, bye: 10 }, { id: 'f1', pos: 'RB', value: 25, bye: 9 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(119, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false };
+  const covers = scoreCandidate({ pos: 'TE', value: 0, projPoints: 137, bye: 13 }, ctx);
+  const shares = scoreCandidate({ pos: 'TE', value: 0, projPoints: 137, bye: 10 }, ctx);
+  ok(covers > shares, `same-bye backup covers nothing (${shares.toFixed(1)} vs ${covers.toFixed(1)})`);
+});
+
+test('a backup QB is not credited, per the strategy document', () => {
+  // "If you land a Tier 1/2 QB, you do not need a second." A one-week bye is
+  // the easiest hole in fantasy to stream.
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 69, bye: 7 }, { id: 'r1', pos: 'RB', value: 90, bye: 5 },
+    { id: 'r2', pos: 'RB', value: 60, bye: 6 }, { id: 'w1', pos: 'WR', value: 50, bye: 3 },
+    { id: 'w2', pos: 'WR', value: 45, bye: 4 }, { id: 'w3', pos: 'WR', value: 40, bye: 8 },
+    { id: 't1', pos: 'TE', value: 30, bye: 10 }, { id: 'f1', pos: 'RB', value: 25, bye: 9 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(119, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false };
+  const qb2 = scoreCandidate({ pos: 'QB', value: 0, projPoints: 334, bye: 8 }, ctx);
+  const te2 = scoreCandidate({ pos: 'TE', value: 0, projPoints: 137, bye: 13 }, ctx);
+  ok(te2 > qb2, `the TE2 must win the bench slot (te ${te2.toFixed(1)} vs qb ${qb2.toFixed(1)})`);
+});
+
+test('byeCoverCredit 0 disables the credit', () => {
+  const settings = { ...DEFAULT_SETTINGS, byeCoverCredit: 0 };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60, bye: 7 }, { id: 'r1', pos: 'RB', value: 90, bye: 5 },
+    { id: 'r2', pos: 'RB', value: 60, bye: 6 }, { id: 'w1', pos: 'WR', value: 50, bye: 3 },
+    { id: 'w2', pos: 'WR', value: 45, bye: 4 }, { id: 'w3', pos: 'WR', value: 40, bye: 8 },
+    { id: 't1', pos: 'TE', value: 30, bye: 10 }, { id: 'f1', pos: 'RB', value: 25, bye: 9 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(119, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false };
+  const te = scoreCandidate({ pos: 'TE', value: 0, projPoints: 137, bye: 13 }, ctx);
+  const wr = scoreCandidate({ pos: 'WR', value: -7, projPoints: 145, bye: 11 }, ctx);
+  ok(wr > te, 'with the credit off the raw-points comparison wins again');
+});
+
 test('a cap never blocks filling a mandatory starter slot', () => {
   // K and DST are capped at 1, but the endgame must still be able to fill an
   // empty K slot in the final round.

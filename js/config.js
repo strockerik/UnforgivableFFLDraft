@@ -82,6 +82,10 @@ export const DEFAULT_SETTINGS = {
   // between similar players and never overrides a real talent gap. Three great
   // players sharing a bye beat two great and one average spread across two.
   byeAversion: 1,
+  // Multiplier on the bye-insurance credit for a first backup at a single-slot
+  // position. 0 disables it. Exists so the tuning is measurable rather than
+  // buried in a constant -- see the A/B in the commit that introduced it.
+  byeCoverCredit: 1,
   // Refresh the board from FantasyPros when the app opens, if the cached copy
   // is older than this. Rankings move daily in preseason and hourly on draft
   // morning; a stale board is the quiet failure.
