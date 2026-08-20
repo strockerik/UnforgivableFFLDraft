@@ -72,6 +72,12 @@ export const DEFAULT_SETTINGS = {
   // almost nothing, while a lottery ticket has option value that expected
   // points cannot express. Set to 0 to disable.
   sleeperQuota: 1,
+  // How hard to avoid stacking starters on one bye week. 0 disables it, 1 is
+  // the calibrated default, higher is more averse. Deliberately gentle: a
+  // third starter on a bye costs 12 points of score, which breaks a tie
+  // between similar players and never overrides a real talent gap. Three great
+  // players sharing a bye beat two great and one average spread across two.
+  byeAversion: 1,
   // Refresh the board from FantasyPros when the app opens, if the cached copy
   // is older than this. Rankings move daily in preseason and hourly on draft
   // morning; a stale board is the quiet failure.

@@ -1201,6 +1201,87 @@ test('a cap never blocks filling a mandatory starter slot', () => {
 });
 
 // ============================================================================
+group('engine.js — bye-week collisions');
+
+function byeState(starters, extra = {}) {
+  const settings = { ...DEFAULT_SETTINGS, ...extra };
+  const roster = starters.map((p, i) => ({ id: 'b' + i, ...p }));
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const analysis = rosterAnalysis(st);
+  return { analysis, position: draftPosition(40, settings), settings, cliffs: {}, flexBaseline: 175 };
+}
+
+test('a second starter on a bye week is free', () => {
+  // Eight starters across a dozen bye weeks — two sharing is unavoidable.
+  const ctx = byeState([{ pos: 'RB', value: 90, bye: 7 }]);
+  const same = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 7 }, ctx);
+  const diff = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 9 }, ctx);
+  eq(Math.round(same), Math.round(diff), 'second on a bye must cost nothing: ');
+});
+
+test('a third starter on the same bye is penalised', () => {
+  const ctx = byeState([
+    { pos: 'RB', value: 90, bye: 7 }, { pos: 'RB', value: 60, bye: 7 },
+  ]);
+  const same = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 7 }, ctx);
+  const diff = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 9 }, ctx);
+  ok(diff > same, `third on a bye should be worse (${same.toFixed(1)} vs ${diff.toFixed(1)})`);
+});
+
+test('the penalty never outweighs a real talent gap', () => {
+  // Erik's stated preference: three great players sharing a bye beat two great
+  // and one average spread across two weeks. This is the test that keeps it so.
+  const ctx = byeState([
+    { pos: 'RB', value: 90, bye: 7 }, { pos: 'RB', value: 60, bye: 7 },
+  ]);
+  const great = scoreCandidate({ pos: 'WR', value: 45, projPoints: 195, bye: 7 }, ctx);
+  const average = scoreCandidate({ pos: 'WR', value: 25, projPoints: 175, bye: 11 }, ctx);
+  ok(great > average,
+    `a 20-point better player on a stacked bye must still win (${great.toFixed(1)} vs ${average.toFixed(1)})`);
+});
+
+test('a bench player on a stacked bye is never penalised', () => {
+  // Starters full, so the candidate is bench depth — his bye is irrelevant.
+  const ctx = byeState([
+    { pos: 'QB', value: 60, bye: 7 }, { pos: 'RB', value: 90, bye: 7 },
+    { pos: 'RB', value: 60, bye: 7 }, { pos: 'WR', value: 50, bye: 7 },
+    { pos: 'WR', value: 45, bye: 3 }, { pos: 'WR', value: 40, bye: 4 },
+    { pos: 'TE', value: 30, bye: 5 }, { pos: 'RB', value: 25, bye: 6 },
+  ]);
+  const same = scoreCandidate({ pos: 'WR', value: 10, projPoints: 160, bye: 7 }, ctx);
+  const diff = scoreCandidate({ pos: 'WR', value: 10, projPoints: 160, bye: 9 }, ctx);
+  eq(Math.round(same), Math.round(diff), 'bench byes are free: ');
+});
+
+test('kicker and defence byes do not count toward a collision', () => {
+  const ctx = byeState([
+    { pos: 'K', value: 5, bye: 7 }, { pos: 'DST', value: 11, bye: 7 },
+    { pos: 'RB', value: 90, bye: 7 },
+  ]);
+  // Only one SKILL starter is on week 7, so a second skill starter is free.
+  const same = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 7 }, ctx);
+  const diff = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 9 }, ctx);
+  eq(Math.round(same), Math.round(diff), 'streamed positions must not trigger it: ');
+});
+
+test('byeAversion 0 disables the penalty entirely', () => {
+  const ctx = byeState([
+    { pos: 'RB', value: 90, bye: 7 }, { pos: 'RB', value: 60, bye: 7 },
+  ], { byeAversion: 0 });
+  const same = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 7 }, ctx);
+  const diff = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 9 }, ctx);
+  eq(Math.round(same), Math.round(diff));
+});
+
+test('a player with no bye recorded is not penalised', () => {
+  const ctx = byeState([{ pos: 'RB', value: 90, bye: 7 }, { pos: 'RB', value: 60, bye: 7 }]);
+  const noBye = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: null }, ctx);
+  const clean = scoreCandidate({ pos: 'WR', value: 40, projPoints: 190, bye: 9 }, ctx);
+  eq(Math.round(noBye), Math.round(clean), 'missing data must not be treated as a collision: ');
+});
+
+// ============================================================================
 group('mock draft (js/mock.js)');
 
 test('an opponent never picks an unavailable player', () => {

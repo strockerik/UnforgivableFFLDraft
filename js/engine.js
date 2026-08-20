@@ -134,6 +134,23 @@ const SURPLUS_PENALTY = { QB: 30, TE: 18, DST: 40, K: 40 };
  */
 const POSITION_CAPS = { QB: 2, TE: 2, K: 1, DST: 1 };
 
+/**
+ * Penalty in VORP points for adding another STARTER on a bye week that already
+ * has some, indexed by how many would then share it.
+ *
+ * Deliberately small. Eight skill starters across roughly a dozen bye weeks
+ * means two sharing is ordinary and unavoidable, so that costs nothing. Three
+ * is worth breaking a tie over; four is a week you have already lost.
+ *
+ * Calibration follows Erik's stated preference exactly: three great players on
+ * one bye beat two great and one average spread across two. A 12-point nudge
+ * flips a coin-toss between similar players and never overrides a real talent
+ * gap, which in the middle rounds runs 20-40 points. If this ever starts
+ * costing starting-lineup value, it is too high -- the measured cost at these
+ * numbers is under 2 points a draft.
+ */
+const BYE_PENALTY = { 2: 0, 3: 12, 4: 30 };
+
 /** Strategy-document tag that marks a high-variance, high-upside player. */
 export const UPSIDE_TAG = 'sleeper';
 
@@ -151,6 +168,22 @@ export const UPSIDE_TAG = 'sleeper';
  * only applies after the starters are filled.
  */
 const UPSIDE_BONUS = 25;
+
+/**
+ * Bye week -> how many SKILL starters already sit on it.
+ *
+ * Kicker and defence slots are excluded: both are streamed week to week, so a
+ * bye there is a non-event and counting it would make the penalty fire on
+ * collisions that cost nothing.
+ */
+export function skillStarterByes(analysis) {
+  const out = {};
+  for (const [slot, list] of Object.entries(analysis.slots)) {
+    if (slot === 'K' || slot === 'DST') continue;
+    for (const p of list) if (p.bye != null) out[p.bye] = (out[p.bye] || 0) + 1;
+  }
+  return out;
+}
 
 export function scoreCandidate(player, ctx) {
   const { analysis, position, settings, cliffs, flexBaseline } = ctx;
@@ -230,6 +263,20 @@ export function scoreCandidate(player, ctx) {
   // and the endgame ever disagree.
   const cap = POSITION_CAPS[player.pos];
   if (cap != null && have >= cap && !fillsOwnSlot) score -= 2000;
+
+  // Bye-week collision. Charged only to a player who would actually START:
+  // a bench bye costs nothing, and K/DST byes are streamed around, so neither
+  // is counted on either side of the comparison.
+  if (fillsStarter && player.bye != null) {
+    const aversion = settings.byeAversion ?? 1;
+    if (aversion > 0) {
+      const sharing = skillStarterByes(analysis)[player.bye] || 0;
+      if (sharing >= 1) {
+        const would = Math.min(sharing + 1, 4);
+        score -= (BYE_PENALTY[would] ?? 0) * aversion;
+      }
+    }
+  }
 
   // Upside quota. Only once the starting lineup is full, never at a kicker or
   // defence, and never enough to outrank a genuinely better player by more
