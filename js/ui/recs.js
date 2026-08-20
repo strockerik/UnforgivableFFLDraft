@@ -98,8 +98,8 @@ function render() {
     el('button', {
       class: 'btn primary',
       disabled: busy,
-      onclick: () => askClaude(evaluation, available),
-    }, busy ? 'Asking Claude…' : 'Ask Claude'),
+      onclick: () => confirmThenAsk(evaluation, available),
+    }, busy ? 'Asking Claude…' : (isCurrent() ? 'Ask Claude again' : 'Ask Claude')),
 
     result?.note ? el('p', { class: 'warn-inline' }, result.note) : null,
 
@@ -136,6 +136,39 @@ function render() {
           `~$${cost.cost.toFixed(4)} · ${cost.freshIn} fresh in / ${cost.cachedIn} cached in / ${cost.out} out`)
       : null,
   );
+}
+
+/**
+ * True when a real Claude answer is already on screen for THIS pick.
+ *
+ * `result` is cleared by the rerender callback on any state change — a pick,
+ * an undo, a settings edit — so its mere presence means nothing has moved
+ * since the answer came back. A deterministic fallback does not count: if the
+ * API failed, retrying is exactly what you want, not something to talk you out of.
+ */
+function isCurrent() {
+  return !busy && result?.source === 'claude' && !!result.rec;
+}
+
+/**
+ * Guard against re-asking by reflex. Each call costs real money and roughly
+ * ten seconds of a sixty-second clock, and the second answer is usually the
+ * first answer again — nothing has changed to make it differ.
+ */
+function confirmThenAsk(evaluation, available) {
+  if (isCurrent()) {
+    const pick = result.rec?.primary_pick;
+    const spent = estimateCost(result.usage, result.model);
+    const lines = [
+      'Claude has already answered for this pick.',
+      pick ? `\nCurrent recommendation: ${pick.name} (${pick.position}).` : '',
+      '\nNothing has changed since, so the answer will almost certainly be the same.',
+      spent ? ` Asking again costs about $${spent.cost.toFixed(3)} and a few seconds.` : '',
+      '\n\nAsk again anyway?',
+    ].filter(Boolean).join('');
+    if (!confirm(lines)) return;
+  }
+  askClaude(evaluation, available);
 }
 
 async function askClaude(evaluation, available) {
