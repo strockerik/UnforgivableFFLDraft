@@ -18,6 +18,32 @@ import { toast } from './toast.js';
 let running = false;
 let rng = makeRng(Date.now() & 0x7fffffff);
 
+/**
+ * Whether the simulated coaches are actually drafting.
+ *
+ * Kept separate from the `mockDraft` setting, which only ARMS practice mode.
+ * Flipping a toggle should not immediately draft nine picks at you — you want
+ * to set the draft order and check the board first, then start deliberately.
+ *
+ * Deliberately not persisted: after a page reload this returns to false, so a
+ * refresh never resumes auto-drafting behind your back. Press Start again to
+ * continue, which is one click and unambiguous.
+ */
+let started = false;
+
+export const isMockRunning = () => started;
+
+/** Begin (or resume) auto-drafting for the other coaches. */
+export function startMock() {
+  started = true;
+  advanceMock();
+}
+
+/** Stop auto-drafting. The setting stays armed so Start can resume. */
+export function stopMock() {
+  started = false;
+}
+
 /** Fresh randomness, so two practice drafts differ. Seed for a repeatable one. */
 export function reseedMock(seed) {
   rng = makeRng(seed || (Date.now() & 0x7fffffff));
@@ -25,7 +51,7 @@ export function reseedMock(seed) {
 
 /** True when practice mode should be doing work right now. */
 function shouldRun() {
-  if (!state.settings.mockDraft || running) return false;
+  if (!state.settings.mockDraft || !started || running) return false;
   if (!state.pool.length) return false;
   const total = state.settings.teams * state.settings.rounds;
   const pickNo = state.picks.length + 1;

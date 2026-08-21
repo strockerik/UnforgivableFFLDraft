@@ -12,7 +12,7 @@ import { parseStrategyDoc, applyTags } from '../strategy.js';
 import { fetchPool } from '../fantasypros.js';
 import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
 import { myPicks } from '../snake.js';
-import { advanceMock, reseedMock } from './mock-runner.js';
+import { advanceMock, reseedMock, startMock, stopMock, isMockRunning } from './mock-runner.js';
 import { COACHES, coachByName, habitSummary } from '../coaches.js';
 import { toCsv, toCoachingReport, exportFilename } from '../export.js';
 
@@ -625,36 +625,53 @@ function render() {
       field('Practice mode', el('select', {
         onchange: (e) => {
           const on = e.target.value === 'on';
-          if (on && state.picks.length && !confirm(
-            `This draft already has ${state.picks.length} pick(s). Practice mode will start `
-            + 'auto-drafting for the other nine coaches from here.\n\nTurn it on anyway?')) {
-            return;
-          }
-          if (on) reseedMock();
+          if (!on) stopMock();
           setSettings({ mockDraft: on });
-          if (on) advanceMock();
         },
       }, [
         el('option', { value: 'off', selected: !s.mockDraft }, 'Off — you record every pick'),
         el('option', { value: 'on', selected: !!s.mockDraft }, 'On — the other 9 coaches draft themselves'),
-      ]), 'Rehearsal only. The other coaches pick by ADP, bent toward their real '
-        + 'habits, and are forced to fill starters late exactly as Yahoo forces them.'),
+      ]), 'Arms practice mode. Nothing is drafted until you press Start, so you can '
+        + 'set the draft order and look at the board first. The other coaches pick by '
+        + 'ADP bent toward their real habits, and are forced to fill starters late '
+        + 'exactly as Yahoo forces them.'),
       s.mockDraft
         ? el('div', { class: 'row' },
+            isMockRunning()
+              ? el('button', { class: 'btn', onclick: () => { stopMock(); render(); } }, 'Pause')
+              : el('button', {
+                  class: 'btn primary',
+                  onclick: () => {
+                    if (state.picks.length && !confirm(
+                      `This draft already has ${state.picks.length} pick(s).\n\n`
+                      + 'Starting will auto-draft for the other nine coaches from here. '
+                      + 'Use "Restart" instead if you want a clean draft.\n\nStart anyway?')) return;
+                    startMock();
+                    render();
+                  },
+                }, state.picks.length ? 'Start from here' : 'Start practice draft'),
             el('button', {
               class: 'btn',
-              onclick: () => { reseedMock(); resetDraft(); advanceMock(); },
-            }, 'Restart practice draft'),
-            el('button', {
-              class: 'btn small',
-              onclick: () => advanceMock(),
-            }, 'Advance to my turn'),
+              onclick: () => {
+                if (state.picks.length && !confirm('Clear all picks and start a fresh practice draft?')) return;
+                reseedMock();
+                resetDraft();
+                startMock();
+                render();
+              },
+            }, 'Restart'),
+            isMockRunning()
+              ? el('button', { class: 'btn small', onclick: () => advanceMock() }, 'Advance to my turn')
+              : null,
           )
         : null,
       s.mockDraft
-        ? el('p', { class: 'hint warn-inline' },
-            'Practice mode is ON. Turn it OFF before your real draft, or the app will '
-            + 'draft over your league-mates’ actual picks.')
+        ? el('p', { class: isMockRunning() ? 'hint warn-inline' : 'hint' },
+            isMockRunning()
+              ? 'Running — the other nine coaches are drafting themselves. Turn practice '
+                + 'mode OFF before your real draft, or the app will draft over your '
+                + 'league-mates\u2019 actual picks.'
+              : 'Armed but not running. Press Start when you are ready.')
         : null,
     ),
 
