@@ -130,6 +130,7 @@ KNOWN OPPONENTS
 \`opponentsBeforeYourNextPick\` lists the coaches actually on the clock before the user picks again, with habits drawn from four seasons of this league's drafts. Every one of those drafts was live and in person — there is no autodraft here — so a habit marked "never varies" is a real, repeated human pattern, not noise. \`positionsLikelyGoneBeforeYourNextPick\` counts how many of those coaches have a reliable habit of taking each position by this round.
 \`picksBeforeYourNextTurn\` is the exact number of picks that will be made before the user is back on the clock, and \`opponentsBeforeYourNextPick\` is the COMPLETE list of them — never assume an extra unlisted pick. N picks remove exactly N players, no more: two upcoming picks by one coach with both a WR and an RB habit means two players total, not one of each. At a turn this number is often as small as 1 or 2.
 When the user picks twice in quick succession, the question is not which player is likeliest to be taken — it is which LOSS costs more. Compare each candidate against the best player at his position who would still be there next turn. A quarterback whose replacement is 48 points worse should be protected ahead of a receiver whose replacement is 10 points worse, even when the receiver is far likelier to go. Say this explicitly in the timing note when it applies.
+A habit is what a coach LIKES, not a forecast. Each entry carries \`alreadyDrafted\` — what he has taken this year by position and what he still needs — and that OVERRIDES the habit whenever the two disagree. A coach with a decade-long receiver habit who already holds three receivers and still needs a QB, an RB and a TE is not about to take a fourth receiver; his habit is a want he has already satisfied. Read the habit as "what he reaches for when the slot is open", then check whether the slot is still open. Say which one you are relying on.
 Use this for TIMING ONLY. It changes whether the user can afford to wait on a position, never which player is better. Concretely: if the user wants a position that two upcoming coaches reliably take by this round, taking it now is justified; if nobody upcoming has ever wanted it early, it can wait a round and the user should bank the better player instead. Never promote a lower-value player over a higher-value one on the strength of an opponent habit, and never claim a specific player will be taken by a specific coach — the habits are positional, not player-level. An empty list means no history for these names; fall back to ADP and runs.
 
 EXPERT DISAGREEMENT
@@ -282,8 +283,36 @@ export async function recommend({
  * Validate shape, then enforce the allowlist. A drafted player named by the
  * model is a hard failure, not something to paper over.
  */
+/**
+ * Prose the model emitted to satisfy the schema rather than to say anything.
+ *
+ * Seen in a live draft: the model wrote nested JSON inside `primary_pick.reason`
+ * — the field ended with `.',` — and then filled timing_note, strategy_note and
+ * every alternative's reason with the literal string "placeholder". All of it
+ * is schema-valid, so name-and-presence checks pass it straight through and the
+ * panel renders "placeholder" four times on a live clock.
+ */
+const FILLER = /^\s*(placeholder|n\/?a|tbd|todo|none|\.\.\.|-+)\s*$/i;
+const MIN_PROSE = 20;
+
+function unwritten(s) {
+  if (typeof s !== 'string') return true;
+  const t = s.trim();
+  return !t || FILLER.test(t) || t.length < MIN_PROSE;
+}
+
+/**
+ * Validate a recommendation.
+ *
+ * Returns hard `errors` and soft `warnings`. The split matters: a model naming
+ * a drafted player is unusable and must fall back, but a good primary pick
+ * whose secondary prose came back as filler is still worth showing — throwing
+ * away a correct pick because the timing note was junk would cost more than it
+ * saves.
+ */
 export function validateRecommendation(rec, allowlist) {
   const errors = [];
+  const warnings = [];
   const allowed = new Set(allowlist);
 
   const checkPick = (p, label) => {
@@ -294,6 +323,11 @@ export function validateRecommendation(rec, allowlist) {
   };
 
   checkPick(rec?.primary_pick, 'primary_pick');
+  // Filler in the PRIMARY reason is a hard failure — that is the one sentence
+  // the whole recommendation rests on.
+  if (rec?.primary_pick && unwritten(rec.primary_pick.reason)) {
+    errors.push('primary_pick: reason is placeholder text, not a reason.');
+  }
 
   if (!Array.isArray(rec?.alternatives)) {
     errors.push('alternatives: not an array.');
@@ -303,7 +337,23 @@ export function validateRecommendation(rec, allowlist) {
 
   if (typeof rec?.positional_advice !== 'string') errors.push('positional_advice: missing.');
 
-  return { ok: errors.length === 0, errors };
+  // Soft: the pick may still be right even when the surrounding prose is not
+  // written. Name the fields so the UI can suppress them instead of rendering
+  // the word "placeholder" at someone on a sixty-second clock.
+  const soft = [];
+  if (Array.isArray(rec?.alternatives)) {
+    rec.alternatives.forEach((a, i) => {
+      if (a && unwritten(a.reason)) soft.push(`alternatives[${i}].reason`);
+    });
+  }
+  for (const f of ['positional_advice', 'timing_note', 'strategy_note']) {
+    if (f in (rec || {}) && unwritten(rec[f])) soft.push(f);
+  }
+  if (soft.length) {
+    warnings.push(`${soft.length} field(s) came back as placeholder text: ${soft.join(', ')}.`);
+  }
+
+  return { ok: errors.length === 0, errors, warnings, unwrittenFields: soft };
 }
 
 /** Rough spend for one call, in USD. */

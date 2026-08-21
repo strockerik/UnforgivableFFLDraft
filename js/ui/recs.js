@@ -147,7 +147,7 @@ function render() {
  * API failed, retrying is exactly what you want, not something to talk you out of.
  */
 function isCurrent() {
-  return !busy && result?.source === 'claude' && !!result.rec;
+  return !busy && result?.source === 'claude' && !!result.rec && !result.degraded;
 }
 
 /**
@@ -220,7 +220,22 @@ async function askClaude(evaluation, available) {
         note: `Claude's answer failed validation (${check.errors[0]}) — showing the deterministic pick.`,
       };
     } else {
-      result = { rec, source: 'claude', usage, model, note: null };
+      // A sound pick can arrive with filler in the surrounding prose. Keep the
+      // pick, say so, and blank the unwritten fields — rendering the literal
+      // word "placeholder" at someone on a sixty-second clock is worse than
+      // showing nothing there.
+      for (const f of check.unwrittenFields || []) {
+        const m = f.match(/^alternatives\[(\d+)\]\.reason$/);
+        if (m) rec.alternatives[Number(m[1])].reason = '';
+        else rec[f] = '';
+      }
+      result = {
+        rec, source: 'claude', usage, model,
+        note: check.warnings?.length
+          ? `${check.warnings[0]} The pick itself is sound — "Ask Claude again" to retry the rest.`
+          : null,
+        degraded: !!check.warnings?.length,
+      };
     }
   } catch (err) {
     const msg = err instanceof ClaudeError

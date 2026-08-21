@@ -68,6 +68,31 @@ export function rosterAnalysis(state) {
   return { roster, slots, bench, need, unfilled, counts, byeConflicts };
 }
 
+/**
+ * What a set of drafted players covers, and what it still needs.
+ *
+ * Pure — takes players and the roster shape, touches no state — so it works
+ * for any team, not just the user's. That is the point: a coach's historical
+ * habit is a prior about what he LIKES, and it has to be read against what he
+ * has already filled. Danny opens WR in round 1 every year, but once he holds
+ * three receivers and needs a QB, an RB and a TE, "Danny takes receivers" is a
+ * statement about a want he has already satisfied.
+ */
+export function positionNeeds(players, roster) {
+  const need = { ...roster };
+  const leftovers = [];
+  for (const p of [...players].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))) {
+    if ((need[p.pos] || 0) > 0) need[p.pos] -= 1;
+    else leftovers.push(p);
+  }
+  for (const p of leftovers) {
+    if ((need.FLEX || 0) > 0 && FLEX_ELIGIBLE.includes(p.pos)) need.FLEX -= 1;
+  }
+  const counts = {};
+  for (const p of players) counts[p.pos] = (counts[p.pos] || 0) + 1;
+  return { counts, unfilled: Object.keys(need).filter((k) => need[k] > 0) };
+}
+
 /** For each position: the shallowest tier still on the board and how thin it is. */
 export function tierCliffs(available) {
   const out = {};
@@ -593,6 +618,23 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     opponentsBeforeYourNextPick: upcoming
       .filter((u) => u.coach)
       .map((u) => ({
+        // What he has ALREADY drafted this year. Without it the habit is read
+        // as a prediction rather than a preference, and the panel ends up
+        // warning about a receiver run from a coach who is three receivers
+        // deep and short a quarterback, a back and a tight end.
+        alreadyDrafted: (() => {
+          const byId = new Map(state.pool.map((p) => [p.id, p]));
+          const his = state.picks
+            .filter((pk) => pk.teamSlot === u.slot)
+            .map((pk) => byId.get(pk.playerId))
+            .filter(Boolean);
+          const { counts, unfilled } = positionNeeds(his, settings.roster);
+          return {
+            byPosition: counts,
+            stillNeeds: unfilled,
+            picksMade: his.length,
+          };
+        })(),
         pick: u.pickNo,
         coach: u.name,
         reliableHabits: habitSummary(u.coach),

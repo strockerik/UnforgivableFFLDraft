@@ -16,7 +16,12 @@ const ALLOWED_TAGS = new Set([
   'committee-risk', 'volume-king', 'schedule-boost', 'rookie-uncertainty',
 ]);
 
-const MAX_NOTE = 200;
+// Notes now carry a source count plus the substance of the objection, and the
+// bust merge appended the prior observation to several of them — the longest
+// runs 338 characters. At 200 they were being cut mid-sentence on the board.
+// Only the ~12 players per position inside the evidence packet carry a note,
+// so the extra tokens are negligible.
+const MAX_NOTE = 400;
 
 /** Same normalization the player merge uses, so joins behave identically. */
 const SUFFIXES = new Set(['JR', 'SR', 'II', 'III', 'IV', 'V']);

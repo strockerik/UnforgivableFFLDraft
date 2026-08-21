@@ -10,7 +10,7 @@ import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAd
 import { replacementLevels, computeValues, biggestDisagreements, leaguePoints } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
-         scoreCandidate, flexReplacementPoints } from '../js/engine.js';
+         scoreCandidate, flexReplacementPoints, positionNeeds } from '../js/engine.js';
 import { validateRecommendation, recommend, RECOMMENDATION_SCHEMA } from '../js/claude.js';
 import { parseStrategyDoc, applyTags } from '../js/strategy.js';
 import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
@@ -644,9 +644,11 @@ group('claude.js — response validation');
 
 const allow = ['RB Sample 01', 'WR Sample 02'];
 const good = {
-  primary_pick: { name: 'RB Sample 01', position: 'RB', reason: 'Top value.' },
-  alternatives: [{ name: 'WR Sample 02', position: 'WR', reason: 'Also fine.' }],
-  positional_advice: 'Take RB early.',
+  primary_pick: { name: 'RB Sample 01', position: 'RB',
+    reason: 'Highest value on the board and the last back in his tier.' },
+  alternatives: [{ name: 'WR Sample 02', position: 'WR',
+    reason: 'Comparable value with a safer target share and no injury flag.' }],
+  positional_advice: 'Take the back now and attack receiver value at the turn.',
 };
 
 test('accepts a well-formed recommendation', () => {
@@ -1536,15 +1538,50 @@ test('schema requires the timing, strategy and confidence fields', () => {
   eq(props.confidence.enum, ['high', 'medium', 'low']);
 });
 
-test('validation still turns only on the allowlist, not the new prose fields', () => {
+test('unwritten prose warns but does not discard a good pick', () => {
+  // Seen live: the model wrote nested JSON into primary_pick.reason and filled
+  // timing_note, strategy_note and every alternative reason with the literal
+  // string "placeholder". Throwing away a correct pick because the timing note
+  // was filler would cost more than it saves -- warn and suppress instead.
   const rec = {
-    primary_pick: { name: 'A', position: 'RB', reason: 'r' },
-    alternatives: [],
-    positional_advice: 'x',
-    timing_note: '', strategy_note: '', confidence: 'low',
+    primary_pick: { name: 'A', position: 'RB',
+      reason: 'Clear best available with a two-tier gap behind him.' },
+    alternatives: [{ name: 'A', position: 'RB', reason: 'placeholder' }],
+    positional_advice: 'placeholder',
+    timing_note: '', strategy_note: 'n/a', confidence: 'low',
   };
-  ok(validateRecommendation(rec, ['A']).ok, 'empty notes should not fail validation');
+  const res = validateRecommendation(rec, ['A']);
+  ok(res.ok, 'a sound primary pick must survive filler elsewhere');
+  ok(res.warnings.length > 0, 'but it must warn');
+  eq(res.unwrittenFields.sort(),
+    ['alternatives[0].reason', 'positional_advice', 'strategy_note', 'timing_note']);
   ok(!validateRecommendation(rec, ['B']).ok, 'a drafted player must still fail');
+});
+
+test('filler in the PRIMARY reason is a hard failure', () => {
+  // That one sentence is what the whole recommendation rests on.
+  const rec = {
+    primary_pick: { name: 'A', position: 'RB', reason: 'placeholder' },
+    alternatives: [], positional_advice: 'x',
+    timing_note: 'x', strategy_note: 'x', confidence: 'low',
+  };
+  const res = validateRecommendation(rec, ['A']);
+  eq(res.ok, false);
+  ok(res.errors.some((e) => /placeholder/.test(e)), res.errors.join(' | '));
+});
+
+test('positionNeeds reads a coach roster against the league shape', () => {
+  // Danny holding WR x3 with a decade-long receiver habit is not about to take
+  // a fourth: the habit is a want he has already satisfied.
+  const danny = [
+    { pos: 'WR', value: 90 }, { pos: 'WR', value: 60 }, { pos: 'WR', value: 40 },
+  ];
+  const { counts, unfilled } = positionNeeds(danny, DEFAULT_SETTINGS.roster);
+  eq(counts.WR, 3);
+  ok(!unfilled.includes('WR'), `WR should be filled, got ${unfilled.join(',')}`);
+  for (const p of ['QB', 'RB', 'TE', 'DST', 'K']) {
+    ok(unfilled.includes(p), `${p} should still be needed`);
+  }
 });
 
 // ============================================================================
