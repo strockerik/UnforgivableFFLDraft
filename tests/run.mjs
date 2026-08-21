@@ -1048,6 +1048,71 @@ test('legacy saved settings migrate team names to coach names', () => {
     'second pass: ');
 });
 
+test('tierCliffs measures what waiting past the tier actually costs', () => {
+  const avail = [
+    { pos: 'RB', tier: 2, value: 59 },              // last of tier 2
+    { pos: 'RB', tier: 3, value: 55 }, { pos: 'RB', tier: 3, value: 50 },
+    { pos: 'TE', tier: 2, value: 62 }, { pos: 'TE', tier: 2, value: 58 },
+    { pos: 'TE', tier: 4, value: 35 },              // tier numbers may skip
+  ];
+  const c = tierCliffs(avail);
+  eq(c.RB.dropToNextTier, 4, 'RB: 59 - 55 = ');
+  eq(c.TE.dropToNextTier, 23, 'TE: worst of tier 2 (58) - best of tier 4 (35) = ');
+  ok(c.RB.isCliff && c.TE.isCliff, 'both tiers are thin');
+});
+
+test('a shallow cliff no longer outranks a clearly better player', () => {
+  // The live failure: a 59-value RB whose "cliff" was worth 4 points beat a
+  // 72-value WR, because every cliff paid a flat +25.
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const avail = [
+    { pos: 'RB', tier: 2, value: 59 }, { pos: 'RB', tier: 3, value: 55 },
+    { pos: 'WR', tier: 2, value: 72 }, { pos: 'WR', tier: 2, value: 62 },
+    { pos: 'WR', tier: 2, value: 59 },
+  ];
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(19, settings),
+    settings, cliffs: tierCliffs(avail), flexBaseline: 175, wantsUpside: false };
+  const rb = scoreCandidate({ pos: 'RB', tier: 2, value: 59, projPoints: 200 }, ctx);
+  const wr = scoreCandidate({ pos: 'WR', tier: 2, value: 72, projPoints: 224 }, ctx);
+  ok(wr > rb, `a 13-point value edge must beat a 4-point cliff (wr ${wr.toFixed(1)} vs rb ${rb.toFixed(1)})`);
+});
+
+test('a deep cliff still earns its urgency', () => {
+  // The other half: a genuine 24-point TE cliff SHOULD outrank a modestly
+  // better receiver, because the replacement TE is far worse than the
+  // replacement WR.
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const avail = [
+    { pos: 'TE', tier: 2, value: 62 }, { pos: 'TE', tier: 4, value: 35 },
+    { pos: 'WR', tier: 2, value: 72 }, { pos: 'WR', tier: 2, value: 66 },
+    { pos: 'WR', tier: 2, value: 64 },
+  ];
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(19, settings),
+    settings, cliffs: tierCliffs(avail), flexBaseline: 175, wantsUpside: false };
+  const te = scoreCandidate({ pos: 'TE', tier: 2, value: 62, projPoints: 200 }, ctx);
+  const wr = scoreCandidate({ pos: 'WR', tier: 2, value: 72, projPoints: 224 }, ctx);
+  ok(te > wr, `a 27-point cliff should beat a 10-point value edge (te ${te.toFixed(1)} vs wr ${wr.toFixed(1)})`);
+});
+
+test('the cliff bonus is capped and never negative', () => {
+  const avail = [
+    { pos: 'RB', tier: 1, value: 300 }, { pos: 'RB', tier: 2, value: 10 },
+    { pos: 'WR', tier: 1, value: 20 }, { pos: 'WR', tier: 2, value: 60 },
+  ];
+  const c = tierCliffs(avail);
+  ok(c.RB.dropToNextTier === 290, 'raw drop is reported honestly');
+  // An inverted "drop" — the next tier grades higher — must clamp to zero
+  // rather than subtract from the score.
+  eq(c.WR.dropToNextTier, 0, 'inverted drop clamps: ');
+});
+
+test('a position with no tier below reports no drop', () => {
+  const c = tierCliffs([{ pos: 'K', tier: 8, value: 5 }]);
+  eq(c.K.dropToNextTier, null, 'nothing below to fall to: ');
+});
+
 // ============================================================================
 group('engine.js — roster construction caps');
 

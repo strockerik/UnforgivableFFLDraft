@@ -12,6 +12,9 @@ import { replacementLevels } from './vorp.js';
 const RUN_WINDOW = 8;      // picks looked back at for a positional run
 const RUN_THRESHOLD = 3;   // that many at one position inside the window = run
 const CLIFF_THRESHOLD = 2; // that few left in the current tier = cliff
+// Ceiling on the tier-cliff bonus. The bonus itself is the measured drop to
+// the next tier; this only stops an outlier gap from overwhelming everything.
+const CLIFF_BONUS_CAP = 25;
 
 /** Players the user has drafted, in pick order. */
 export function myRoster(state) {
@@ -93,15 +96,38 @@ export function positionNeeds(players, roster) {
   return { counts, unfilled: Object.keys(need).filter((k) => need[k] > 0) };
 }
 
-/** For each position: the shallowest tier still on the board and how thin it is. */
+/**
+ * For each position: the shallowest tier still on the board, how thin it is,
+ * and what waiting past it actually costs.
+ *
+ * `dropToNextTier` is the measured cost: the worst player still in the current
+ * tier minus the best in the tier below. That number is the whole point of a
+ * cliff, and it varies enormously — at one live pick the RB and QB cliffs were
+ * each worth 4 points while the TE cliff was worth 24. Treating them alike is
+ * what let a 59-value back outrank a 72-value receiver.
+ */
 export function tierCliffs(available) {
   const out = {};
   for (const pos of POSITIONS) {
     const inPos = available.filter((p) => p.pos === pos && p.tier != null);
     if (!inPos.length) { out[pos] = null; continue; }
     const tier = Math.min(...inPos.map((p) => p.tier));
-    const remaining = inPos.filter((p) => p.tier === tier).length;
-    out[pos] = { tier, remaining, isCliff: remaining <= CLIFF_THRESHOLD };
+    const current = inPos.filter((p) => p.tier === tier)
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+    // The next tier that actually has players in it — tier numbers can skip.
+    const below = inPos.filter((p) => p.tier > tier);
+    let dropToNextTier = null;
+    if (below.length) {
+      const nextTier = Math.min(...below.map((p) => p.tier));
+      const best = Math.max(...below.filter((p) => p.tier === nextTier)
+        .map((p) => p.value ?? 0));
+      const worstHere = current[current.length - 1]?.value ?? 0;
+      dropToNextTier = Math.max(0, worstHere - best);
+    }
+
+    out[pos] = { tier, remaining: current.length,
+      isCliff: current.length <= CLIFF_THRESHOLD, dropToNextTier };
   }
   return out;
 }
@@ -369,9 +395,15 @@ export function scoreCandidate(player, ctx) {
     else score += 500;
   }
 
-  // A tier about to empty makes that position urgent.
+  // A tier about to empty makes that position urgent — but only worth what
+  // the drop actually costs. This used to be a flat +25 regardless, which
+  // priced a 4-point RB cliff identically to a 24-point TE cliff and let a
+  // 59-value back outrank a 72-value receiver in a live draft. Capped so a
+  // freak gap between tiers cannot swamp the value model outright.
   const cliff = cliffs[player.pos];
-  if (cliff && cliff.isCliff && player.tier === cliff.tier) score += 25;
+  if (cliff && cliff.isCliff && player.tier === cliff.tier) {
+    score += Math.min(cliff.dropToNextTier ?? 0, CLIFF_BONUS_CAP);
+  }
 
   // Falling relative to ADP is free value.
   if (player.adp != null && position.pickNo > player.adp + 5) {
