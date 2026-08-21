@@ -235,6 +235,33 @@ export function mergeAdp(players, adpRows) {
 }
 
 /** De-dupe by id, keep the better (lower) ECR, and sort by ECR. */
+/**
+ * Recompute fields DERIVED from stored ones.
+ *
+ * Called by finalizePool, and again by state.load() on the cached pool.
+ * That second call is the point: a pool saved to localStorage is restored
+ * verbatim, so any derived field added after it was cached is simply absent —
+ * the RISK column rendered blank for exactly this reason, on a pool that had
+ * ecrBest and ecrWorst sitting right there. Backfilling on load means new
+ * derived fields appear without forcing a refetch, and it is idempotent.
+ */
+export function backfillDerived(pool) {
+  for (const p of pool) {
+    // How far apart the most and least optimistic expert rank him. Wide means
+    // the projection is a guess dressed as a number; tight means the field
+    // agrees.
+    //
+    // Deliberately null for K and DST: their spread runs 180-200 purely
+    // because most experts do not rank them at all, which reads as extreme
+    // uncertainty when it is really absent data.
+    p.ecrSpread = (p.pos === 'K' || p.pos === 'DST'
+      || p.ecrBest == null || p.ecrWorst == null)
+      ? null
+      : p.ecrWorst - p.ecrBest;
+  }
+  return pool;
+}
+
 export function finalizePool(players) {
   const seen = new Map();
   const warnings = [];
@@ -256,18 +283,9 @@ export function finalizePool(players) {
     counters[p.pos] = (counters[p.pos] || 0) + 1;
     if (p.posRank == null) p.posRank = counters[p.pos];
 
-    // How far apart the most and least optimistic expert rank him. Wide means
-    // the projection is a guess dressed as a number; tight means the field
-    // agrees. This is downloaded on every refresh and was previously unused.
-    //
-    // Deliberately null for K and DST: their spread runs 180-200 purely
-    // because most experts do not rank them at all, which reads as extreme
-    // uncertainty when it is really absent data.
-    p.ecrSpread = (p.pos === 'K' || p.pos === 'DST'
-      || p.ecrBest == null || p.ecrWorst == null)
-      ? null
-      : p.ecrWorst - p.ecrBest;
   }
+
+  backfillDerived(pool);
 
   return { pool, warnings };
 }

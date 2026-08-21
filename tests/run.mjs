@@ -6,7 +6,8 @@
 //   node tests/run.mjs
 
 import { parseRows, findHeaderRow, normHeader, parseTable, num } from '../js/csv.js';
-import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp, finalizePool } from '../js/players.js';
+import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp,
+         finalizePool, backfillDerived } from '../js/players.js';
 import { replacementLevels, computeValues, biggestDisagreements, leaguePoints } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
@@ -1493,6 +1494,25 @@ test('a player with no components keeps the published projection', () => {
   const pool = [{ id: 'x', name: 'X', pos: 'RB', posRank: 1, projPoints: 210, projStats: null }];
   computeValues(pool, DEFAULT_SETTINGS);
   eq(pool[0].projPoints, 210, 'untouched: ');
+});
+
+test('a pool cached before a derived field existed heals on reload', () => {
+  // The RISK column rendered blank for exactly this reason: load() restores the
+  // cached pool verbatim and never re-runs finalizePool, so ecrSpread was
+  // absent on a pool that had ecrBest and ecrWorst sitting right there.
+  const stale = [
+    { id: 'a', name: 'A', pos: 'WR', ecrBest: 3, ecrWorst: 40 },
+    { id: 'b', name: 'B', pos: 'K', ecrBest: 107, ecrWorst: 314 },
+    { id: 'c', name: 'C', pos: 'RB', ecrBest: null, ecrWorst: 90 },
+  ];
+  ok(stale.every((p) => p.ecrSpread === undefined), 'fixture starts without it');
+  backfillDerived(stale);
+  eq(stale[0].ecrSpread, 37, 'skill player: ');
+  eq(stale[1].ecrSpread, null, 'kicker stays null: ');
+  eq(stale[2].ecrSpread, null, 'missing bound stays null: ');
+  // Idempotent — running it again must not disturb anything.
+  backfillDerived(stale);
+  eq(stale[0].ecrSpread, 37, 'second pass: ');
 });
 
 test('finalizePool computes expert spread and blanks it for K and DST', () => {

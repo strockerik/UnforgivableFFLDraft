@@ -3,7 +3,7 @@
 
 import { KEYS, DEFAULT_SETTINGS } from './config.js';
 import { slotOnClock } from './snake.js';
-import { nameKey } from './players.js';
+import { nameKey, backfillDerived } from './players.js';
 import { TEAM_TO_COACH } from './coaches.js';
 
 const UNDO_DEPTH = 30;
@@ -120,6 +120,8 @@ export function load() {
     if (p) {
       const parsed = JSON.parse(p);
       state.pool = parsed.pool || [];
+      // A cached pool predates any derived field added since it was saved.
+      backfillDerived(state.pool);
       state.valueMode = parsed.valueMode || null;
       state.warnings = parsed.warnings || [];
     }
