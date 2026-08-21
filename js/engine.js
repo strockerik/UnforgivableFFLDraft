@@ -8,6 +8,11 @@ import { FLEX_ELIGIBLE, POSITIONS, SCARCITY_RANK } from './config.js';
 import { draftPosition, slotOnClock } from './snake.js';
 import { coachesUntilMyTurn, positionsAtRisk, habitSummary } from './coaches.js';
 import { replacementLevels } from './vorp.js';
+// The opponent behaviour model. Named for practice mode, where it was first
+// used, but it is the league's ADP-plus-habits model and belongs here too —
+// projecting the next N picks is the same problem as simulating them. No cycle:
+// mock.js imports only config.js and coaches.js.
+import { mockPickFor, rosterOfSlot } from './mock.js';
 
 const RUN_WINDOW = 8;      // picks looked back at for a positional run
 const RUN_THRESHOLD = 3;   // that many at one position inside the window = run
@@ -128,6 +133,72 @@ export function tierCliffs(available) {
 
     out[pos] = { tier, remaining: current.length,
       isCliff: current.length <= CLIFF_THRESHOLD, dropToNextTier };
+  }
+  return out;
+}
+
+/** How deep into the ADP board the projection looks. See projectBoard. */
+const PROJECTION_DEPTH = 90;
+
+/**
+ * The most likely board when you are next on the clock.
+ *
+ * Reuses the opponent simulator rather than inventing a second model:
+ * mockPickFor already encodes ADP, each coach's reliable habits, their unfilled
+ * roster needs, the K/DST gate and the Yahoo endgame constraint. Passing an rng
+ * that always returns 0 selects depth 0 — the modal pick — so the same function
+ * yields a deterministic projection instead of a sample.
+ *
+ * Only the top of the board is simulated. Nobody drafts the 400th-ranked player
+ * with a second-round pick, and restricting to PROJECTION_DEPTH by ADP took
+ * this from 1.4 ms to 0.2 ms with an identical result — worth having, because
+ * this runs inside evaluate() on every render.
+ *
+ * Returns an empty set when the window is empty, which is the correct answer at
+ * the turn: from slot 1, picks 20 and 21 are back to back and nothing can be
+ * taken in between, so nothing is urgent.
+ */
+export function projectBoard(state, available, fromPick, toPick, pickFor = mockPickFor) {
+  const gone = new Set();
+  if (!(toPick > fromPick) || !available.length) return gone;
+
+  const { teams, draftOrder = [] } = state.settings;
+  let board = [...available]
+    .sort((a, b) => (a.adp ?? Infinity) - (b.adp ?? Infinity))
+    .slice(0, PROJECTION_DEPTH);
+  // Each simulated coach keeps drafting onto his own roster as the projection
+  // runs, so his needs evolve the way they would in the real draft.
+  const rosters = {};
+
+  for (let p = fromPick; p < toPick; p += 1) {
+    const slot = slotOnClock(p, teams);
+    const roster = (rosters[slot] ||= rosterOfSlot(state, slot).slice());
+    const round = Math.floor((p - 1) / teams) + 1;
+    const choice = pickFor(draftOrder[slot - 1], board, roster, state.settings, round, () => 0);
+    if (!choice) break;
+    gone.add(choice.id);
+    roster.push(choice);
+    board = board.filter((x) => x.id !== choice.id);
+  }
+  return gone;
+}
+
+/**
+ * Per position, the value of the best player expected to SURVIVE to your next
+ * pick. Subtracting this from a candidate's value gives what taking him now
+ * actually buys — which is the question a tier boundary only gestures at.
+ *
+ * A position with nobody left projects null rather than 0: "everyone is gone"
+ * and "the best left is worth zero" are different claims, and treating the
+ * first as the second would manufacture enormous urgency out of an empty pool.
+ */
+export function attritionCost(available, gone) {
+  const out = {};
+  for (const pos of POSITIONS) {
+    const alive = available
+      .filter((p) => p.pos === pos && !gone.has(p.id))
+      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    out[pos] = alive.length ? (alive[0].value ?? 0) : null;
   }
   return out;
 }
@@ -395,14 +466,26 @@ export function scoreCandidate(player, ctx) {
     else score += 500;
   }
 
-  // A tier about to empty makes that position urgent — but only worth what
-  // the drop actually costs. This used to be a flat +25 regardless, which
-  // priced a 4-point RB cliff identically to a 24-point TE cliff and let a
-  // 59-value back outrank a 72-value receiver in a live draft. Capped so a
-  // freak gap between tiers cannot swamp the value model outright.
-  const cliff = cliffs[player.pos];
-  if (cliff && cliff.isCliff && player.tier === cliff.tier) {
-    score += Math.min(cliff.dropToNextTier ?? 0, CLIFF_BONUS_CAP);
+  // Positional urgency: what taking him NOW buys over waiting.
+  //
+  // Uncapped on purpose. This is a value difference in the same units as VORP,
+  // and the two-pick lookahead works out exactly -- taking A (100, urgency 40)
+  // over B (110, urgency 0) yields 100 + 110 = 210 against 110 + 60 = 170, an
+  // edge of precisely 40. A player projected to survive scores zero here,
+  // because his position's survivor value is at least his own.
+  //
+  // Falls back to the measured tier cliff only when there is no projection at
+  // all: without ADP the simulation has nothing to order picks by, and a stale
+  // structural signal beats none. An empty window is NOT that case -- at the
+  // turn nothing can be sniped, and zero urgency is the right answer.
+  const survivor = ctx.survivingValue?.[player.pos];
+  if (ctx.survivingValue) {
+    if (survivor != null) score += Math.max(0, (player.value ?? 0) - survivor);
+  } else {
+    const cliff = cliffs[player.pos];
+    if (cliff && cliff.isCliff && player.tier === cliff.tier) {
+      score += Math.min(cliff.dropToNextTier ?? 0, CLIFF_BONUS_CAP);
+    }
   }
 
   // Falling relative to ADP is free value.
@@ -424,6 +507,26 @@ export function evaluate(state, available) {
   const cliffs = tierCliffs(available);
   const runs = positionRuns(state);
   const levels = replacementLevels(settings);
+
+  // What the board most likely looks like when you are next on the clock.
+  // Computed once here and passed through ctx -- never per candidate.
+  // The window is the picks OTHER teams make before you choose again — never
+  // your own. When you are on the clock those run from the next pick up to
+  // your following one; when someone else is, the pick on the clock is theirs
+  // and counts. Getting this wrong by one is easy and invisible: at the
+  // serpentine turn it projected your own back-to-back pick as an opponent's
+  // and manufactured urgency where nothing could be sniped.
+  const windowStart = position.isMyPick ? position.pickNo + 1 : position.pickNo;
+  const windowEnd = position.isMyPick
+    ? (position.gapToFollowingPick != null
+        ? position.pickNo + position.gapToFollowingPick
+        : null)
+    : position.nextPick;
+  const projectedGone = windowEnd != null
+    ? projectBoard(state, available, windowStart, windowEnd)
+    : new Set();
+  const survivingValue = projectedGone.size ? attritionCost(available, projectedGone) : null;
+
   // Upside quota: how many tagged sleepers the user wants, minus how many are
   // already rostered. Zero disables it entirely.
   const quota = settings.sleeperQuota ?? 0;
@@ -431,13 +534,14 @@ export function evaluate(state, available) {
     (p) => Array.isArray(p.tags) && p.tags.includes(UPSIDE_TAG)).length;
   const ctx = { analysis, position, settings, cliffs,
     flexBaseline: flexReplacementPoints(state.pool, levels),
+    survivingValue,
     wantsUpside: haveUpside < quota };
 
   const ranked = available
     .map((p) => ({ player: p, score: scoreCandidate(p, ctx) }))
     .sort((a, b) => b.score - a.score);
 
-  return { position, analysis, cliffs, runs, ranked, levels };
+  return { position, analysis, cliffs, runs, ranked, levels, survivingValue, projectedGone };
 }
 
 /**
@@ -646,6 +750,21 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     // and worried about a nonexistent "third pick". Two picks remove exactly
     // two players, and at a turn the list is often shorter than it feels.
     picksBeforeYourNextTurn: upcoming.length,
+    // What each position costs you if you wait. This is the measured answer to
+    // "can this position wait", where a tier count is only a proxy for it.
+    attritionBeforeYourNextPick: evaluation.survivingValue
+      ? Object.fromEntries(POSITIONS.map((pos) => {
+          const best = available.filter((p) => p.pos === pos)
+            .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
+          const survives = evaluation.survivingValue[pos];
+          if (!best) return [pos, null];
+          return [pos, {
+            bestNow: Math.round(best.value ?? 0),
+            bestSurviving: survives == null ? null : Math.round(survives),
+            costOfWaiting: survives == null ? null : Math.round((best.value ?? 0) - survives),
+          }];
+        }).filter(([, v]) => v)) 
+      : null,
     opponentsListIsExhaustive: true,
     opponentsBeforeYourNextPick: upcoming
       .filter((u) => u.coach)

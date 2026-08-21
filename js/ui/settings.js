@@ -1,7 +1,7 @@
 // Setup drawer: league config, data loading, API key, model + effort.
 
 import { el, mount } from './dom.js';
-import { MODELS, EFFORTS, POSITIONS } from '../config.js';
+import { MODELS, EFFORTS, POSITIONS, modelSupportsEffort } from '../config.js';
 import {
   state, setSettings, setPool, refreshPool, getApiKey, setApiKey,
   getPassphrase, setPassphrase, setStrategy, resetDraft, hardReset,
@@ -614,9 +614,12 @@ function render() {
           onchange: (e) => setSettings({ model: e.target.value }),
         }, MODELS.map((m) => el('option', { value: m.id, selected: s.model === m.id }, m.label)))),
         field('Effort', el('select', {
+          disabled: !modelSupportsEffort(s.model),
           onchange: (e) => setSettings({ effort: e.target.value }),
         }, EFFORTS.map((x) => el('option', { value: x, selected: s.effort === x }, x))),
-        'Lower = faster on the clock'),
+        modelSupportsEffort(s.model)
+          ? 'Lower = faster on the clock'
+          : 'This model does not accept an effort setting, so it is not sent.'),
       ),
     ),
 

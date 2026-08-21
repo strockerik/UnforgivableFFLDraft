@@ -5,7 +5,7 @@
 // dangerous because the key is visible to anyone with access to this browser.
 // Acceptable for a private single-user tool; not for anything shared.
 
-import { API_URL, API_VERSION } from './config.js';
+import { API_URL, API_VERSION, modelSupportsEffort } from './config.js';
 
 // Structured output schema. Every object closed (additionalProperties: false)
 // with all fields required, so the response shape is guaranteed rather than
@@ -80,8 +80,10 @@ A player's value is not his raw point total. It is how far he outscores the last
 POSITIONAL SCARCITY
 RB and elite TE fall off a cliff quickly and should be prioritized. QB and WR are deep — good starters last well past where raw projections suggest, so reaching for them early burns surplus value. DST and K are fungible and belong in the final two rounds only; never recommend them earlier.
 
-TIER CLIFFS
-Players are grouped into tiers of roughly interchangeable value. What matters is not that a tier is nearly empty but WHAT THE DROP COSTS. Each cliff in the packet carries \`dropToNextTier\` — the measured gap between the worst player left in that tier and the best in the tier below. A tier with one player left whose drop is 4 points is not urgent; you lose almost nothing by waiting. A tier whose drop is 24 points is, and it can justify taking a lower-value player now, because the replacement at that position is far worse than the replacement at a deep one. Compare the drop against the value gap you would be giving up, and say the numbers when they drive the pick.
+TIER CLIFFS AND POSITIONAL URGENCY
+Do not reason about urgency from tier counts. A tier is a grouping convention, and the boundaries are frequently jumbled -- at one live pick the worst player in WR tier 1 graded BELOW the best in tier 2, so the position read as "no cliff" at the exact moment three elite receivers were about to disappear.
+The real question is what waiting costs. \`attritionBeforeYourNextPick\` answers it per position by simulating the picks that will actually happen before the user is next on the clock: \`bestNow\`, \`bestSurviving\`, and \`costOfWaiting\` between them. A position whose best player survives costs nothing to postpone however thin its tier looks. A position losing 45 points is urgent even with no tier boundary in sight.
+Compare that cost against the value you would give up by taking the lesser player now, and cite both numbers when they drive the pick. Remember this is a serpentine draft: at the turn the window can be ZERO picks, in which case nothing can be sniped and the right move is simply the best player available. Tier counts remain in the packet as context for how thin a position is, not as a reason to act.
 
 ROSTER CONSTRUCTION, ROUND-SENSITIVE
 Early rounds: take the best value available, close to position-agnostic. A common half-PPR baseline is two RBs through the first three rounds and then attacking WR value; Hero-RB (one elite RB, then hammer WR) is a defensible alternative. Middle rounds: balance value against unfilled starter slots. Late rounds: fill required starters, then handcuffs and upside. Weight roster need more heavily as the draft progresses — early is best-available, late is fill-the-holes.
@@ -221,7 +223,8 @@ export async function recommend({
       { type: 'text', text: leagueContext(evidence), cache_control: { type: 'ephemeral' } },
     ],
     output_config: {
-      effort,
+      // Omitted entirely for models that reject it rather than ignore it.
+      ...(modelSupportsEffort(model) ? { effort } : {}),
       format: { type: 'json_schema', schema: RECOMMENDATION_SCHEMA },
     },
     messages: [{

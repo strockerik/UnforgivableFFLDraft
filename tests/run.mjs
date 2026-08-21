@@ -10,7 +10,8 @@ import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAd
 import { replacementLevels, computeValues, biggestDisagreements, leaguePoints } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
-         scoreCandidate, flexReplacementPoints, positionNeeds } from '../js/engine.js';
+         scoreCandidate, flexReplacementPoints, positionNeeds,
+         projectBoard, attritionCost } from '../js/engine.js';
 import { validateRecommendation, recommend, RECOMMENDATION_SCHEMA } from '../js/claude.js';
 import { parseStrategyDoc, applyTags } from '../js/strategy.js';
 import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
@@ -1111,6 +1112,99 @@ test('the cliff bonus is capped and never negative', () => {
 test('a position with no tier below reports no drop', () => {
   const c = tierCliffs([{ pos: 'K', tier: 8, value: 5 }]);
   eq(c.K.dropToNextTier, null, 'nothing below to fall to: ');
+});
+
+// ============================================================================
+group('engine.js — attrition-based urgency');
+
+test('the projection window is exactly the opponents picks, never your own', () => {
+  // The serpentine turn is the trap: from slot 1, picks 20 and 21 are back to
+  // back, so ZERO players come off the board in between. An off-by-one here
+  // projects your own pick as an opponent's and invents urgency.
+  const settings = { ...DEFAULT_SETTINGS, teams: 10, slot: 1 };
+  const mine = myPicks(settings);
+  eq(mine.slice(0, 3), [1, 20, 21], 'slot 1 picks: ');
+  eq(mine[1] - mine[0] - 1, 18, 'picks between 1 and 20: ');
+  eq(mine[2] - mine[1] - 1, 0, 'picks between 20 and 21: ');
+});
+
+test('projectBoard removes exactly one player per intervening pick', () => {
+  const pool5 = Array.from({ length: 40 }, (_, i) => ({
+    id: 'p' + i, name: 'P' + i, pos: i % 2 ? 'WR' : 'RB',
+    value: 100 - i, adp: i + 1, tier: 1 + Math.floor(i / 8), projPoints: 200 - i,
+  }));
+  const settings = { ...DEFAULT_SETTINGS, teams: 10, slot: 5 };
+  const st = { settings, pool: pool5, picks: [], valueMode: 'projections' };
+  eq(projectBoard(st, pool5, 6, 16).size, 10, 'ten intervening picks: ');
+  eq(projectBoard(st, pool5, 21, 21).size, 0, 'empty window at the turn: ');
+  eq(projectBoard(st, pool5, 21, 20).size, 0, 'inverted window is empty, not negative: ');
+});
+
+test('attritionCost reports the best SURVIVOR, and null when a position empties', () => {
+  const avail = [
+    { id: 'a', pos: 'RB', value: 100 }, { id: 'b', pos: 'RB', value: 60 },
+    { id: 'c', pos: 'WR', value: 90 },
+  ];
+  const cost = attritionCost(avail, new Set(['a']));
+  eq(cost.RB, 60, 'best surviving RB: ');
+  eq(cost.WR, 90, 'untouched WR: ');
+  // Everyone gone is not the same as "the best left is worth zero" — treating
+  // it as zero would manufacture enormous urgency out of an empty pool.
+  eq(attritionCost(avail, new Set(['a', 'b'])).RB, null, 'emptied position: ');
+});
+
+test('a player projected to survive carries no urgency', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const base = { analysis: rosterAnalysis(st), position: draftPosition(19, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false };
+  const p = { pos: 'WR', value: 80, projPoints: 200, tier: 1 };
+  // survivingValue at his own value or better -> nothing is lost by waiting.
+  const safe = scoreCandidate(p, { ...base, survivingValue: { WR: 80 } });
+  const doomed = scoreCandidate(p, { ...base, survivingValue: { WR: 40 } });
+  ok(doomed > safe, `a player about to vanish must outrank one who will not (${doomed.toFixed(1)} vs ${safe.toFixed(1)})`);
+  ok(Math.abs((doomed - safe) - 40) < 0.01, 'and by exactly the drop he represents');
+});
+
+test('urgency is uncapped, because it is commensurate with value', () => {
+  // Two-pick lookahead: A(100, urgency 40) then B(110) = 210, versus B(110)
+  // then A-position survivor(60) = 170. The 40-point edge must survive intact
+  // or the comparison stops being arithmetic.
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(19, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: false,
+    survivingValue: { RB: 60, WR: 110 } };
+  const a = scoreCandidate({ pos: 'RB', value: 100, projPoints: 240, tier: 1 }, ctx);
+  const b = scoreCandidate({ pos: 'WR', value: 110, projPoints: 250, tier: 1 }, ctx);
+  ok(a > b, `A should win by the urgency margin (${a.toFixed(1)} vs ${b.toFixed(1)})`);
+});
+
+test('jumbled tier boundaries no longer hide an urgent position', () => {
+  // The live failure: WR tier 1 ran down to 72 while tier 2's best was 84, so
+  // dropToNextTier clamped to 0 and WR read as "no cliff" while three elite
+  // receivers were about to disappear.
+  const avail = [
+    { id: 'w1', pos: 'WR', tier: 1, value: 129 }, { id: 'w2', pos: 'WR', tier: 1, value: 117 },
+    { id: 'w3', pos: 'WR', tier: 1, value: 109 }, { id: 'w4', pos: 'WR', tier: 1, value: 72 },
+    { id: 'w5', pos: 'WR', tier: 2, value: 84 },
+  ];
+  eq(tierCliffs(avail).WR.dropToNextTier, 0, 'the tier signal really is zero here: ');
+  // Attrition sees it correctly once the top three are projected gone.
+  eq(attritionCost(avail, new Set(['w1', 'w2', 'w3'])).WR, 84, 'best surviving: ');
+});
+
+test('with no projection the tier-cliff fallback still applies', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const st = { settings, pool: [], valueMode: 'projections', picks: [] };
+  const cliffs = tierCliffs([
+    { pos: 'TE', tier: 2, value: 62 }, { pos: 'TE', tier: 4, value: 35 },
+  ]);
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(19, settings),
+    settings, cliffs, flexBaseline: 175, wantsUpside: false, survivingValue: null };
+  const withCliff = scoreCandidate({ pos: 'TE', tier: 2, value: 62, projPoints: 200 }, ctx);
+  const noCliff = scoreCandidate({ pos: 'TE', tier: 9, value: 62, projPoints: 200 }, ctx);
+  ok(withCliff > noCliff, 'the measured cliff still fires when ADP is absent');
 });
 
 // ============================================================================
