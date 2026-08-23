@@ -1374,6 +1374,68 @@ test('the upside quota lifts a sleeper only once starters are full', () => {
     'once the quota is met the bonus must stop applying');
 });
 
+test('only an RB or WR sleeper satisfies the upside quota', () => {
+  // A backup quarterback is a lottery ticket for a raffle you are not entered
+  // in: with QB capped at two and one starter, he plays the week his starter
+  // is out and otherwise never. Jared Goff satisfied the quota in a live draft
+  // while a tagged WR sleeper sat unclaimed.
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  const withQb = [
+    { id: 'q1', name: 'QB1', pos: 'QB', value: 60 },
+    { id: 'q2', name: 'QB2', pos: 'QB', value: -3, tags: ['sleeper'] },
+    { id: 'r1', name: 'RB1', pos: 'RB', value: 90 }, { id: 'r2', name: 'RB2', pos: 'RB', value: 60 },
+    { id: 'w1', name: 'WR1', pos: 'WR', value: 50 }, { id: 'w2', name: 'WR2', pos: 'WR', value: 45 },
+    { id: 'w3', name: 'WR3', pos: 'WR', value: 40 }, { id: 't1', name: 'TE1', pos: 'TE', value: 30 },
+    { id: 'f1', name: 'FLEX', pos: 'RB', value: 25 },
+  ];
+  const st = { settings, pool: withQb, valueMode: 'projections',
+    picks: withQb.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ev = evaluate(st, []);
+  ok(ev.wantsUpside, 'a QB sleeper must NOT satisfy the quota');
+
+  // Swap him for a receiver carrying the same tag.
+  const withWr = withQb.map((p) => (p.id === 'q2'
+    ? { id: 'w4', name: 'WR4', pos: 'WR', value: -3, tags: ['sleeper'] } : p));
+  const st2 = { settings, pool: withWr, valueMode: 'projections',
+    picks: withWr.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  ok(!evaluate(st2, []).wantsUpside, 'a WR sleeper must satisfy it');
+});
+
+test('the upside bonus never lifts a tagged QB or TE', () => {
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  const roster = [
+    { id: 'q', pos: 'QB', value: 60 }, { id: 'r1', pos: 'RB', value: 90 },
+    { id: 'r2', pos: 'RB', value: 60 }, { id: 'w1', pos: 'WR', value: 50 },
+    { id: 'w2', pos: 'WR', value: 45 }, { id: 'w3', pos: 'WR', value: 40 },
+    { id: 't1', pos: 'TE', value: 30 }, { id: 'f1', pos: 'RB', value: 25 },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(120, settings),
+    settings, cliffs: {}, flexBaseline: 175, wantsUpside: true, survivingValue: null };
+  const plainWr = scoreCandidate({ pos: 'WR', value: -12, projPoints: 140 }, ctx);
+  const sleeperWr = scoreCandidate({ pos: 'WR', value: -12, projPoints: 140, tags: ['sleeper'] }, ctx);
+  const sleeperQb = scoreCandidate({ pos: 'QB', value: -3, projPoints: 300, tags: ['sleeper'] }, ctx);
+  const plainQb = scoreCandidate({ pos: 'QB', value: -3, projPoints: 300 }, ctx);
+  ok(sleeperWr > plainWr, 'a tagged receiver gets the bonus');
+  eq(Math.round(sleeperQb), Math.round(plainQb), 'a tagged QB gets nothing: ');
+});
+
+test('the packet reports the quota so it cannot fire silently', () => {
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  const roster = [
+    { id: 'r1', name: 'RB1', pos: 'RB', value: 90, tier: 1, adp: 5 },
+    { id: 'w1', name: 'WR1', pos: 'WR', value: 50, tier: 2, adp: 20, tags: ['sleeper'] },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const q = buildEvidence(st, [], evaluate(st, [])).upsideQuota;
+  eq(q.wanted, 1);
+  eq(q.held, ['WR1'], 'names who satisfied it: ');
+  eq(q.countsOnlyAt, ['RB', 'WR']);
+  eq(q.stillWanted, false, 'and says it is met: ');
+});
+
 test('the upside bonus is bounded and never reaches a kicker', () => {
   const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
   const roster = [

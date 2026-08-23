@@ -309,6 +309,22 @@ const BYE_COVER_CREDIT = { TE: 20 };
 export const UPSIDE_TAG = 'sleeper';
 
 /**
+ * Positions where a lottery ticket can actually pay off.
+ *
+ * The whole argument for the upside quota is option value: a bench player who
+ * might become startable is worth more than his projection says. That argument
+ * only holds where he can enter the lineup. With QB and TE capped at two and
+ * one starter each, a bench quarterback plays in the week his starter is out
+ * and otherwise never -- so a QB sleeper is a lottery ticket for a raffle you
+ * are not entered in.
+ *
+ * This bit: the quota was satisfied by Jared Goff, a backup QB, while Matthew
+ * Golden (a tagged WR sleeper) sat on the board unclaimed. Both count as
+ * "sleeper"; only one of them can win you a week.
+ */
+const UPSIDE_POSITIONS = ['RB', 'WR'];
+
+/**
  * How much value the engine will give up to land one upside player, in VORP
  * points, once the starting lineup is already filled.
  *
@@ -449,7 +465,7 @@ export function scoreCandidate(player, ctx) {
   // than UPSIDE_BONUS — it buys a lottery ticket, it does not buy a bad roster.
   if (ctx.wantsUpside
       && !fillsStarter
-      && player.pos !== 'K' && player.pos !== 'DST'
+      && UPSIDE_POSITIONS.includes(player.pos)
       && Array.isArray(player.tags) && player.tags.includes(UPSIDE_TAG)) {
     score += UPSIDE_BONUS;
   }
@@ -531,7 +547,8 @@ export function evaluate(state, available) {
   // already rostered. Zero disables it entirely.
   const quota = settings.sleeperQuota ?? 0;
   const haveUpside = analysis.roster.filter(
-    (p) => Array.isArray(p.tags) && p.tags.includes(UPSIDE_TAG)).length;
+    (p) => UPSIDE_POSITIONS.includes(p.pos)
+      && Array.isArray(p.tags) && p.tags.includes(UPSIDE_TAG)).length;
   const ctx = { analysis, position, settings, cliffs,
     flexBaseline: flexReplacementPoints(state.pool, levels),
     survivingValue,
@@ -541,7 +558,8 @@ export function evaluate(state, available) {
     .map((p) => ({ player: p, score: scoreCandidate(p, ctx) }))
     .sort((a, b) => b.score - a.score);
 
-  return { position, analysis, cliffs, runs, ranked, levels, survivingValue, projectedGone };
+  return { position, analysis, cliffs, runs, ranked, levels, survivingValue,
+    projectedGone, wantsUpside: ctx.wantsUpside };
 }
 
 /**
@@ -759,6 +777,13 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     // and worried about a nonexistent "third pick". Two picks remove exactly
     // two players, and at a turn the list is often shorter than it feels.
     picksBeforeYourNextTurn: upcoming.length,
+    upsideQuota: {
+      wanted: settings.sleeperQuota ?? 0,
+      held: analysis.roster.filter((p) => UPSIDE_POSITIONS.includes(p.pos)
+        && Array.isArray(p.tags) && p.tags.includes(UPSIDE_TAG)).map((p) => p.name),
+      countsOnlyAt: UPSIDE_POSITIONS,
+      stillWanted: evaluation.wantsUpside === true,
+    },
     // What each position costs you if you wait. This is the measured answer to
     // "can this position wait", where a tier count is only a proxy for it.
     attritionBeforeYourNextPick: evaluation.survivingValue
