@@ -86,6 +86,11 @@ export const DEFAULT_SETTINGS = {
   // position. 0 disables it. Exists so the tuning is measurable rather than
   // buried in a constant -- see the A/B in the commit that introduced it.
   byeCoverCredit: 1,
+  // Hide kickers and defences from the ALL view until the last two rounds.
+  // They are fungible and belong at the end, so before then they are just
+  // noise between the players you are actually choosing among. Clicking the K
+  // or DST chip still shows them, and they reappear on their own in round 14.
+  hideLateFillers: true,
   // Refresh the board from FantasyPros when the app opens, if the cached copy
   // is older than this. Rankings move daily in preseason and hourly on draft
   // morning; a stale board is the quiet failure.

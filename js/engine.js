@@ -688,6 +688,15 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     // DST/K only become relevant at the end; keep them out of the packet
     // until then so the model isn't tempted and the payload stays small.
     if ((pos === 'DST' || pos === 'K') && position.round < settings.rounds - 1) continue;
+
+    // A position already at its cap is not an option, so do not offer it. The
+    // prompt forbids exceeding the caps and the engine scores such a player at
+    // -2000, but a third tight end still got recommended because the packet
+    // listed him among the top TEs and he had the highest value there. Telling
+    // a model not to pick something you keep showing it is a weaker guarantee
+    // than not showing it -- the same reasoning as the drafted-player allowlist.
+    const cap = POSITION_CAPS[pos];
+    if (cap != null && (analysis.counts[pos] || 0) >= cap) continue;
     const list = available
       .filter((p) => p.pos === pos)
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))

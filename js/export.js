@@ -23,6 +23,10 @@ const csvCell = (v) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
+// Mirrors POSITION_CAPS in engine.js. Duplicated rather than imported to keep
+// this module free of engine internals; if the caps change, change both.
+const ROSTER_CAPS = { QB: 2, TE: 2, K: 1, DST: 1 };
+
 const n1 = (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toString());
 const int = (v) => (v == null ? '—' : String(Math.round(v)));
 
@@ -176,9 +180,26 @@ export function toCoachingReport(state, { isMock = false, title = null } = {}) {
     // kicker in round 10, which is the opposite of the right answer -- so they
     // only appear as alternatives to another K or DST.
     const skillOnly = r.player.pos !== 'K' && r.player.pos !== 'DST';
+
+    // What the roster held at THIS pick, so positions already at their cap can
+    // be excluded. Listing them as "passed over" is misleading: with two tight
+    // ends rostered the engine could not have taken a third, so Goedert showing
+    // up three times reads as three missed opportunities that never existed.
+    const heldThen = {};
+    for (const q of state.picks) {
+      if (q.pickNo >= r.pickNo || q.teamSlot !== r.slot) continue;
+      const held = byId.get(q.playerId);
+      if (held) heldThen[held.pos] = (heldThen[held.pos] || 0) + 1;
+    }
+    const capped = (pos) => {
+      const cap = ROSTER_CAPS[pos];
+      return cap != null && (heldThen[pos] || 0) >= cap;
+    };
+
     const better = availableThen
       .filter((p) => p.id !== r.player.id && (p.value ?? 0) > (r.player.value ?? 0))
       .filter((p) => !(skillOnly && (p.pos === 'K' || p.pos === 'DST')))
+      .filter((p) => !capped(p.pos))
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
       .slice(0, 4);
 

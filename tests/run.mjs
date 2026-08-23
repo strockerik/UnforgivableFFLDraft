@@ -1033,6 +1033,51 @@ test('evidence packet carries the opponent model without touching the allowlist'
     'allowlist unpolluted');
 });
 
+test('a position at its cap is not offered in the evidence packet', () => {
+  // Live failure: with Pitts and Goedert already rostered, the packet still
+  // listed the top TEs and the model recommended a third. Forbidding it in the
+  // prompt while continuing to show it is a weaker guarantee than not showing
+  // it -- the same reasoning as excluding drafted players from the allowlist.
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [
+    { id: 't1', name: 'TE1', pos: 'TE', value: 30, tier: 2, adp: 40 },
+    { id: 't2', name: 'TE2', pos: 'TE', value: 10, tier: 5, adp: 90 },
+    { id: 'q1', name: 'QB1', pos: 'QB', value: 60, tier: 2, adp: 30 },
+    { id: 'r1', name: 'RB1', pos: 'RB', value: 90, tier: 1, adp: 5 },
+  ];
+  const board = [
+    ...roster,
+    { id: 't3', name: 'TE3', pos: 'TE', value: 8, tier: 6, adp: 120 },
+    { id: 'r2', name: 'RB2', pos: 'RB', value: 40, tier: 3, adp: 50 },
+    { id: 'w1', name: 'WR1', pos: 'WR', value: 35, tier: 3, adp: 55 },
+  ];
+  const st = { settings, pool: board, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const avail = board.filter((p) => !roster.some((r) => r.id === p.id));
+  const packet = buildEvidence(st, avail, evaluate(st, avail));
+
+  ok(!('TE' in packet.board.topAvailableByPosition), 'TE is capped at 2 and must not be offered');
+  ok(!packet.availablePlayerAllowlist.includes('TE3'), 'nor reachable through the allowlist');
+  ok('RB' in packet.board.topAvailableByPosition, 'uncapped positions still appear');
+  ok(packet.availablePlayerAllowlist.includes('RB2'), 'and stay in the allowlist');
+});
+
+test('an uncapped roster still sees every position', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const roster = [{ id: 'r1', name: 'RB1', pos: 'RB', value: 90, tier: 1, adp: 5 }];
+  const board = [roster[0],
+    { id: 't1', name: 'TE1', pos: 'TE', value: 30, tier: 2, adp: 40 },
+    { id: 'q1', name: 'QB1', pos: 'QB', value: 60, tier: 2, adp: 30 },
+    { id: 'w1', name: 'WR1', pos: 'WR', value: 35, tier: 3, adp: 55 }];
+  const st = { settings, pool: board, valueMode: 'projections',
+    picks: [{ pickNo: 1, playerId: 'r1', teamSlot: settings.slot }] };
+  const avail = board.filter((p) => p.id !== 'r1');
+  const packet = buildEvidence(st, avail, evaluate(st, avail));
+  for (const pos of ['QB', 'TE', 'WR']) {
+    ok(pos in packet.board.topAvailableByPosition, `${pos} should be offered`);
+  }
+});
+
 test('legacy saved settings migrate team names to coach names', () => {
   const legacy = {
     draftOrder: ['Vegan Beer', 'Dad Bod', 'The Juice is Loose'],

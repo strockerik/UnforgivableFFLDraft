@@ -425,3 +425,7 @@ body {
   letter-spacing: 0.04em; color: var(--muted); align-self: center;
   margin-right: 0.1rem; white-space: nowrap;
 }
+
+/* Filler-hiding toggle. Reads as a chip but is a switch, so it sits apart. */
+.chip-toggle { margin-left: auto; font-weight: 700; }
+.chip-toggle.active { background: var(--panel-2); border-color: var(--line); color: var(--text); }

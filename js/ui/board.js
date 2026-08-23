@@ -2,7 +2,8 @@
 
 import { el, mount } from './dom.js';
 import { POSITIONS } from '../config.js';
-import { state, availablePlayers, draftPlayer } from '../state.js';
+import { state, availablePlayers, draftPlayer, setSettings } from '../state.js';
+import { roundOf } from '../snake.js';
 import { confirmDraft, draftTarget } from './draft-prompt.js';
 import { toast } from './toast.js';
 
@@ -81,7 +82,23 @@ function rankedTags(tags) {
   });
 }
 
+/**
+ * Rounds from the end at which kickers and defences stop being noise. Matches
+ * the engine's own gate, so the board and the recommendation agree about when
+ * they become draftable.
+ */
+const FILLER_ROUNDS_FROM_END = 2;
+
+function fillersHidden() {
+  if (!state.settings.hideLateFillers) return false;
+  const round = roundOf(state.picks.length + 1, state.settings.teams);
+  return round < state.settings.rounds - FILLER_ROUNDS_FROM_END + 1;
+}
+
 function matches(p) {
+  // Hidden only in the ALL view — asking for K or DST explicitly always shows
+  // them, so this never blocks you from drafting one early if you mean to.
+  if (filter === 'ALL' && fillersHidden() && (p.pos === 'K' || p.pos === 'DST')) return false;
   if (filter !== 'ALL' && p.pos !== filter) return false;
   if (!query) return true;
   const q = norm(query);
@@ -258,7 +275,17 @@ function render() {
             + 'The count shown is the startable one; the rest are replacement level.',
         onclick: () => { filter = pos; render(); },
       }, pos, el('span', { class: 'chip-count' }, String(above)));
-    }));
+    }),
+    // K and DST are fungible and belong in the last two rounds, so before then
+    // they are noise between the players you are actually choosing among.
+    // Reappears on its own in round 14; the K/DST chips always override it.
+    el('button', {
+      class: 'chip chip-toggle' + (state.settings.hideLateFillers ? ' active' : ''),
+      title: state.settings.hideLateFillers
+        ? 'Kickers and defences are hidden from ALL until the last two rounds. Click to show them; the K and DST chips show them regardless.'
+        : 'Kickers and defences are shown in ALL. Click to hide them until the last two rounds.',
+      onclick: () => setSettings({ hideLateFillers: !state.settings.hideLateFillers }),
+    }, state.settings.hideLateFillers ? 'K/DST hidden' : 'K/DST shown'));
 
   // Tier separators only mean something while the list is in a tier-ordered
   // sequence. Under an alphabetical or bye sort the boundaries are noise.
