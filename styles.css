@@ -364,6 +364,17 @@ body {
   border: 1px solid var(--warn); color: var(--warn-ink);
 }
 .tag.strat-more { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+
+/* Live injury status. Deliberately louder than a strategy tag: a bust tag is
+   an opinion about a healthy player, PUP is a fact about missed games. The
+   status word itself is printed, so this survives greyscale and colourblind
+   viewing without depending on the fill colour. */
+.tag.injury { text-transform: uppercase; font-weight: 700; letter-spacing: 0.02em; }
+.injury-high { background: var(--bad); color: #fff; border: 0; }
+.injury-medium {
+  background: color-mix(in srgb, var(--warn) 24%, transparent);
+  border: 1px solid var(--warn); color: var(--warn-ink);
+}
 .player-sub { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 
 /* Injury collapses to a glyph; full status lives in the tooltip. */

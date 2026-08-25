@@ -1519,6 +1519,41 @@ test('a tag stops being worth anything once the quota is filled', () => {
     'an open quota must still pay the tagged player');
 });
 
+// Injuries are the only signal Claude holds that the engine does not, so they
+// have to arrive intact. Alec Pierce was drafted in round 8 of a practice draft
+// two days after ankle surgery put him on PUP, because the channel was empty.
+test('injury status and its severity both reach the packet', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const avail = [
+    { id: 'p', name: 'Pierce', pos: 'WR', value: 12, adp: 92,
+      injury: { status: 'PUP', severity: 'high', detail: 'Ankle, Surgery (reported 2d ago)' } },
+    { id: 'h', name: 'Healthy', pos: 'WR', value: 11, adp: 93 },
+  ];
+  const st = { settings, pool: avail, picks: [], valueMode: 'projections' };
+  const wr = buildEvidence(st, avail, evaluate(st, avail)).board.topAvailableByPosition.WR;
+  const hurt = wr.find((p) => p.name === 'Pierce');
+  ok(hurt.injury.includes('PUP'), 'the status must be in the packet');
+  ok(hurt.injury.includes('2d ago'), 'and its age, so a stale flag can be discounted');
+  eq(hurt.injurySeverity, 'high', 'graded severity travels separately from the label: ');
+  // A healthy player must carry no injury key at all -- an empty string or a
+  // null would invite the model to speculate about a report that does not exist.
+  eq(wr.find((p) => p.name === 'Healthy').injury, undefined,
+    'a healthy player must have no injury field: ');
+});
+
+// The engine must keep ignoring injuries. If it starts pricing them, the
+// projection double-counts (a projection already discounts a known absence)
+// AND the override loses the only information that justifies it.
+test('the engine still scores injured and healthy players identically', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const ctx = { analysis: rosterAnalysis({ settings, pool: [], picks: [] }),
+    position: draftPosition(80, settings), settings, cliffs: {}, flexBaseline: 175 };
+  const base = { pos: 'WR', value: 12, projPoints: 150 };
+  eq(scoreCandidate({ ...base, injury: { status: 'IR', severity: 'high' } }, ctx),
+    scoreCandidate(base, ctx),
+    'injury must not move the deterministic score: ');
+});
+
 test('the upside bonus is bounded and never reaches a kicker', () => {
   const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
   const roster = [

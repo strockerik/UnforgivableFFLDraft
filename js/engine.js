@@ -693,6 +693,11 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     // costs nothing in the packet.
     if (p.injury && (p.injury.status || p.injury.detail)) {
       b.injury = [p.injury.status, p.injury.detail].filter(Boolean).join(' — ');
+      // Severity travels separately from the label because the label alone is
+      // misleading in August: "Questionable" applies to hundreds of players in
+      // the preseason and means almost nothing, while PUP and IR cost real
+      // games. Graded by tools/fetch_injuries.py, not by the model.
+      if (p.injury.severity) b.injurySeverity = p.injury.severity;
     }
     if (Array.isArray(p.news) && p.news.length) {
       b.recentNews = p.news.slice(0, 2).map((n) => n.text);

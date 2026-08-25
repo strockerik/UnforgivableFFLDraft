@@ -75,6 +75,29 @@ function tagChip(tag, player) {
   }, tag, el('span', { class: 'tag-count' }, `${n}/${of}`));
 }
 
+/**
+ * Current injury status, from tools/fetch_injuries.py.
+ *
+ * Shown on the row rather than only in Claude's answer, because the engine
+ * does not read injuries at all: a player on PUP still carries a full season
+ * projection and can sit at the top of the board looking perfectly healthy.
+ * Alec Pierce was drafted in round 8 of a practice draft two days after ankle
+ * surgery put him on PUP, and nothing on screen said a word about it.
+ *
+ * Only high and medium severity render. August "Questionable" covers hundreds
+ * of players and would paint the whole board without informing anything.
+ */
+function injuryChip(player) {
+  const inj = player.injury;
+  if (!inj || !inj.status) return null;
+  if (inj.severity !== 'high' && inj.severity !== 'medium') return null;
+  return el('span', {
+    class: `tag injury injury-${inj.severity}`,
+    title: [inj.status, inj.detail].filter(Boolean).join(' — ')
+      + (inj.severity === 'high' ? ' — expect missed games' : ''),
+  }, inj.status);
+}
+
 function rankedTags(tags) {
   return [...tags].sort((a, b) => {
     const ai = TAG_PRIORITY.indexOf(a), bi = TAG_PRIORITY.indexOf(b);
@@ -193,6 +216,7 @@ function playerRow(p, onDraft, opts = {}) {
       el('div', { class: 'player-name' }, p.name, inj),
       el('div', { class: 'player-sub' },
         el('span', { class: 'player-meta' }, p.team || '—'),
+        injuryChip(p),
         shownTags.length
           ? el('span', { class: 'player-tags', title: tagTitle },
               shownTags.map((t) => tagChip(t, p)),
