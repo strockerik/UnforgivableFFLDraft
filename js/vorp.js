@@ -321,12 +321,23 @@ export const VALUE_MODE_LABEL = {
   surrogate: 'Rank-based value — no projections loaded',
 };
 
-/** Honest one-line description of what `value` currently means. */
+/**
+ * Honest one-line description of what `value` currently means.
+ *
+ * The sources are listed ALPHABETICALLY and said to be equal-weight, because
+ * any other order gets read as a ranking. Listing them in the order they were
+ * added implied a precedence that does not exist -- the blend is a mean, so
+ * reordering the inputs changes the output by nothing (measured: 6e-14, which
+ * is floating-point dust). No source outranks another.
+ */
+export const BLEND_SOURCES = ['CBS', 'Draft Sharks', 'ESPN', 'FantasyPros'];
+
 export function valueModeLabel(mode, blended = 0) {
   if (mode !== 'projections') return VALUE_MODE_LABEL.surrogate;
   return blended > 0
-    ? `VORP from an equal-weight blend of FantasyPros, ESPN, CBS `
-      + `and Draft Sharks (${blended} players averaged across 2+ sources)`
+    ? `VORP from the equal-weight mean of ${BLEND_SOURCES.length} projection sources `
+      + `— ${BLEND_SOURCES.join(', ')} (listed alphabetically; none outranks another). `
+      + `${blended} players averaged across 2 or more.`
     : VALUE_MODE_LABEL.projections;
 }
 
