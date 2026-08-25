@@ -145,6 +145,44 @@ export function leaguePoints(stats, rules) {
 }
 
 /**
+ * Draft Sharks' projection, converted from standard scoring into this league's.
+ *
+ * The other three sources publish raw stat lines, so leaguePoints() scores them
+ * exactly. Draft Sharks publishes only a total, and does not state its scoring.
+ * Measured against 159 matched players, their number ran position-dependently
+ * low -- RB 0.919, WR 0.825, TE 0.752 of ours -- and the positions furthest off
+ * were the most reception-dependent, which is a scoring difference rather than a
+ * forecasting one. Adding back half a point per reception collapsed the gap to
+ * 1.015 / 1.036 / 0.988. They publish standard, non-PPR.
+ *
+ * Receptions come from whichever of the other three have the player, which does
+ * couple this source to them slightly. It is the cheapest possible coupling:
+ * receptions are the least-disputed statistic in the pool, and what stays
+ * independent is Draft Sharks' view of yardage and touchdowns, which is the
+ * bulk of the number.
+ *
+ * Returns null for quarterbacks, and for any league not using this reception
+ * value. The same correction OVERSHOOTS quarterbacks (1.136), so their passing
+ * scoring is not the 4-point/-2 that would explain it and cannot be read from
+ * outside; this league pays 6 per passing touchdown, which is the worst place
+ * to blend in a number whose basis is a guess. The other three still cover QB.
+ */
+export function draftSharksPoints(player, rules) {
+  const ds = player.dsProjection;
+  if (!ds || ds.standardPoints == null) return null;
+  if (player.pos === 'QB' || player.pos === 'K' || player.pos === 'DST') return null;
+
+  const recs = [player.projStats, player.espnStats, player.cbsStats]
+    .map((s) => (s && s.rec_rec != null ? Number(s.rec_rec) : null))
+    .filter((v) => Number.isFinite(v));
+  if (!recs.length) return null;
+
+  const perReception = rules?.reception ?? BASELINE_SCORING.reception;
+  const avgRec = recs.reduce((a, b) => a + b, 0) / recs.length;
+  return ds.standardPoints + avgRec * perReception;
+}
+
+/**
  * Annotate every player with `value` (VORP or its surrogate).
  * Returns the mode so callers can label it honestly.
  */
@@ -190,6 +228,7 @@ export function computeValues(pool, settings) {
       ['fp', leaguePoints(p.projStats, rules)],
       ['espn', leaguePoints(p.espnStats, rules)],
       ['cbs', leaguePoints(p.cbsStats, rules)],
+      ['ds', draftSharksPoints(p, rules)],
     ].filter(([, v]) => v != null);
     if (!sources.length) continue;
     if (p.projPointsGeneric == null) p.projPointsGeneric = p.projPoints;
@@ -198,7 +237,8 @@ export function computeValues(pool, settings) {
     p.projPointsFp = sources.find(([k]) => k === 'fp')?.[1];
     p.projPointsEspn = sources.find(([k]) => k === 'espn')?.[1];
     p.projPointsCbs = sources.find(([k]) => k === 'cbs')?.[1];
-    for (const k of ['projPointsFp', 'projPointsEspn', 'projPointsCbs']) {
+    p.projPointsDs = sources.find(([k]) => k === 'ds')?.[1];
+    for (const k of ['projPointsFp', 'projPointsEspn', 'projPointsCbs', 'projPointsDs']) {
       p[k] = p[k] == null ? null : r1(p[k]);
     }
 
@@ -285,8 +325,8 @@ export const VALUE_MODE_LABEL = {
 export function valueModeLabel(mode, blended = 0) {
   if (mode !== 'projections') return VALUE_MODE_LABEL.surrogate;
   return blended > 0
-    ? `VORP from an equal-weight blend of FantasyPros, ESPN and CBS projections `
-      + `(${blended} players averaged across 2+ sources)`
+    ? `VORP from an equal-weight blend of FantasyPros, ESPN, CBS `
+      + `and Draft Sharks (${blended} players averaged across 2+ sources)`
     : VALUE_MODE_LABEL.projections;
 }
 

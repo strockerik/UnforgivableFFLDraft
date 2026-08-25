@@ -8,7 +8,8 @@
 import { parseRows, findHeaderRow, normHeader, parseTable, num } from '../js/csv.js';
 import { splitPos, parsePlayerTeamBye, nameKey, parseRankings, parseAdp, mergeAdp,
          finalizePool, backfillDerived } from '../js/players.js';
-import { replacementLevels, computeValues, biggestDisagreements, leaguePoints } from '../js/vorp.js';
+import { replacementLevels, computeValues, biggestDisagreements, leaguePoints,
+  draftSharksPoints } from '../js/vorp.js';
 import { pickNumber, myPicks, slotOnClock, roundOf, draftPosition } from '../js/snake.js';
 import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
          scoreCandidate, flexReplacementPoints, positionNeeds,
@@ -1607,6 +1608,36 @@ test('the blend applies this league scoring to BOTH sources', () => {
   eq(qb[0].projPointsFp, 60, "FantasyPros TDs paid at this league's 6: ");
   eq(qb[0].projPointsEspn, 120, 'ESPN TDs paid at the same 6, not their default 4: ');
   eq(qb[0].projPoints, 90);
+});
+
+// Draft Sharks publishes a total, not stats, under STANDARD scoring. Blending
+// it raw would have dragged every receiver down ~17% and every tight end ~25%.
+test('Draft Sharks is converted from standard scoring before it counts', () => {
+  const rules = DEFAULT_SETTINGS.scoringRules;
+  const wr = { pos: 'WR', dsProjection: { standardPoints: 200 },
+    projStats: { rec_rec: 80 }, espnStats: { rec_rec: 100 } };
+  // Consensus 90 receptions x 0.5 = +45.
+  eq(draftSharksPoints(wr, rules), 245, 'half a point per consensus reception: ');
+  // Quarterbacks are excluded: the same correction overshoots them.
+  eq(draftSharksPoints({ ...wr, pos: 'QB' }, rules), null,
+    'QB must be excluded, their scoring basis is unknown: ');
+  eq(draftSharksPoints({ pos: 'WR', dsProjection: { standardPoints: 200 } }, rules), null,
+    'no reception data means no safe conversion: ');
+  eq(draftSharksPoints({ pos: 'WR' }, rules), null, 'absent source contributes nothing: ');
+});
+
+test('a fourth source takes an equal vote at RB, WR and TE', () => {
+  const S = { ...DEFAULT_SETTINGS };
+  const p = [{ id: 'w', pos: 'WR', posRank: 1,
+    projStats: { rec_yds: 300, rec_rec: 0 },
+    espnStats: { rec_yds: 600, rec_rec: 0 },
+    cbsStats: { rec_yds: 900, rec_rec: 0 },
+    dsProjection: { standardPoints: 120 } }];
+  computeValues(p, S);
+  // 30, 60, 90 and 120 (no receptions, so no conversion) average to 75.
+  eq(p[0].sourceCount, 4);
+  eq(p[0].projPoints, 75, 'all four weighted equally: ');
+  eq(p[0].sourceGap, 90, 'gap spans most to least optimistic: ');
 });
 
 test('the upside bonus is bounded and never reaches a kicker', () => {
