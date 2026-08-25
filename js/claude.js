@@ -80,6 +80,11 @@ A player's value is not his raw point total. It is how far he outscores the last
 POSITIONAL SCARCITY
 RB and elite TE fall off a cliff quickly and should be prioritized. QB and WR are deep — good starters last well past where raw projections suggest, so reaching for them early burns surplus value. DST and K are fungible and belong in the final two rounds only; never recommend them earlier.
 
+FLOOR AND CEILING
+\`outcomeRange\` gives Draft Sharks' projected floor and ceiling for a player, converted into this league's scoring, plus \`upsideIfHeHits\` and \`downsideIfHeBusts\` as distances from his projection. No other source here publishes a range, and the engine does not score it.
+Use it to separate two players the point estimate calls equal. A starter should be chosen on floor -- you will play him every week and a bad week is a lost week. A bench flier should be chosen on ceiling -- his whole purpose is the outcome where he becomes startable, and his floor costs you nothing because he is not in the lineup. When two candidates are within a few points of value and one has materially more upside, say which and why.
+\`injuryRiskPct\` is Draft Sharks' own model, not a current injury report. Treat it as a durability prior, and never as evidence a player is hurt right now -- \`injury\` is the field that says that.
+
 INJURIES ARE THE ONE THING YOU KNOW THAT THE ENGINE DOES NOT
 The deterministic engine never reads \`injury\`. It values players from projected points and nothing else, so a player who will miss the first month still carries his full season projection on the board. That makes injury status the single most legitimate reason to override the ranking, and the reason the override exists at all.
 Weigh it by \`injurySeverity\`, not by how the label sounds:
@@ -387,4 +392,107 @@ export function estimateCost(usage, model) {
   const cost =
     (freshIn * prices[0] + writeIn * prices[0] * 1.25 + cachedIn * prices[0] * 0.1 + out * prices[1]) / 1e6;
   return { cost, cachedIn, freshIn, out };
+}
+
+// --- second opinion ----------------------------------------------------------
+
+/**
+ * Ask Claude to search the web for rankings that DISAGREE with the board.
+ *
+ * Deliberately a SEPARATE call from recommend(), on its own button, for two
+ * reasons.
+ *
+ * Latency: web search adds many seconds and the draft clock is 60. The pick
+ * path has to stay fast, so this is something Erik presses when he has time —
+ * an early round, or a pick he is unsure about — never something the main
+ * recommendation waits on.
+ *
+ * Compatibility: this returns PROSE, with no output_config schema. Structured
+ * outputs are documented incompatible with citations, and web search results
+ * carry citations. Rather than find out mid-draft whether that combination
+ * 400s, the second opinion simply does not ask for JSON. Nothing downstream
+ * parses it — it is read by a human.
+ *
+ * The engine is untouched either way. This can only inform Erik; it cannot
+ * move a value or reorder the board.
+ */
+export async function secondOpinion({
+  authMode = 'direct', apiKey, proxyUrl, passphrase, model, candidates, round, signal,
+}) {
+  const viaProxy = authMode === 'proxy';
+  if (viaProxy) {
+    if (!proxyUrl) throw new ClaudeError('No Worker URL set.', 'no-proxy');
+    if (!passphrase) throw new ClaudeError('No passphrase set.', 'no-key');
+  } else if (!apiKey) {
+    throw new ClaudeError('No API key set.', 'no-key');
+  }
+
+  const list = candidates.map((c, i) =>
+    `${i + 1}. ${c.name} (${c.pos}${c.team ? `, ${c.team}` : ''}) — our blended value ${c.value}`
+    + (c.injury ? ` — INJURY: ${c.injury}` : '')
+    + (c.tags?.length ? ` — tags: ${c.tags.join(', ')}` : '')).join('\n');
+
+  const body = {
+    model,
+    max_tokens: 4000,
+    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6 }],
+    system: `You are a second opinion on a fantasy football draft pick, not the primary recommendation.
+
+The user's app already values players from an equal-weight blend of four projection sources (CBS, Draft Sharks, ESPN, FantasyPros), all converted to his league's scoring: 10 teams, half-PPR, 6-point passing touchdowns, -3 per interception, starting QB1/RB2/WR3/TE1/FLEX1/DST1/K1.
+
+Your job is ONLY to find what those four sources might be missing. Search for recent rankings, news, beat reporting and analyst opinion about the specific players listed, and report:
+
+- Anyone the wider market rates materially DIFFERENTLY than the blend does, in either direction, and why.
+- Breaking news the projections cannot have priced yet: injuries, depth-chart changes, holdouts, suspensions, coaching or scheme changes.
+- Nothing at all, if that is the honest answer. "No source disagrees materially with the blend" is a useful and acceptable finding. Do not manufacture disagreement to seem useful.
+
+Be brief and concrete. Cite what you found and when it was reported — recency is the whole point, so date every claim you can. Do not recommend a pick; the user's engine does that. Do not repeat back the values he already gave you.`,
+    messages: [{
+      role: 'user',
+      content: `Round ${round}. These are the top candidates on my board right now:\n\n${list}\n\n`
+        + 'Search for anything recent that would change how I read these, and tell me where the wider market disagrees with my numbers.',
+    }],
+  };
+
+  const url = viaProxy ? proxyUrl : API_URL;
+  const headers = viaProxy
+    ? { 'content-type': 'application/json', 'x-app-passphrase': passphrase }
+    : {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      };
+
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new ClaudeError('Search cancelled.', 'aborted');
+    throw new ClaudeError(`Could not reach the API: ${err.message}`, 'network');
+  }
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const e = await res.json();
+      if (e?.error?.message) detail = e.error.message;
+    } catch { /* keep the status */ }
+    throw new ClaudeError(detail, res.status === 401 ? 'auth' : 'http');
+  }
+
+  const data = await res.json();
+  // A long search can stop with pause_turn before finishing. Report what came
+  // back and say it is partial rather than presenting a truncated answer as
+  // the whole story.
+  const text = (data.content || [])
+    .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+  const searches = (data.content || [])
+    .filter((b) => b.type === 'server_tool_use' && b.name === 'web_search').length;
+  return {
+    text: text || 'The search returned nothing readable.',
+    searches,
+    paused: data.stop_reason === 'pause_turn',
+    usage: data.usage,
+    model: data.model || model,
+  };
 }

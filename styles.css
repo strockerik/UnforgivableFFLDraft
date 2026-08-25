@@ -444,3 +444,20 @@ body {
 /* A wide expert spread is a real warning, but a quiet one: it means the
    projection is a guess dressed as a number, not that the player is bad. */
 .cell-ecrSpread.risk-high { color: var(--warn-ink); font-weight: 650; }
+
+/* Second opinion: a web-search cross-check, on its own button.
+   Visually subordinate to the recommendation on purpose — it informs the pick,
+   it never makes it, and nothing it returns moves a value on the board. */
+.btn.subtle {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--line); margin-top: 0.4rem; width: 100%;
+}
+.btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
+.second-opinion {
+  margin-top: 0.8rem; padding: 0.7rem 0.8rem;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; border-left: 3px solid var(--accent);
+}
+.second-opinion h3 { margin: 0 0 0.2rem; }
+.second-opinion .small { font-size: 0.75rem; }
+.opinion-text { margin: 0.5rem 0 0; font-size: 0.9rem; line-height: 1.55; }

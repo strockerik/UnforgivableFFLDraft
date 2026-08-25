@@ -4,13 +4,73 @@
 import { el, mount } from './dom.js';
 import { state, availablePlayers, getApiKey, getPassphrase, draftPlayer } from '../state.js';
 import { evaluate, deterministicPick, buildEvidence } from '../engine.js';
-import { recommend, validateRecommendation, estimateCost, ClaudeError } from '../claude.js';
+import { recommend, secondOpinion, validateRecommendation, estimateCost,
+  ClaudeError } from '../claude.js';
 import { confirmDraft, draftTarget } from './draft-prompt.js';
 
 let root = null;
 let busy = false;
 let result = null;     // { rec, source, note, usage, model }
 let inflight = null;
+let opinion = null;      // { text, searches, paused, model } from the last search
+let searching = false;
+
+/**
+ * Web-search cross-check, on its own button.
+ *
+ * Kept off the Ask Claude path on purpose: search adds many seconds and the
+ * draft clock is 60. This is for a pick Erik wants to think about, not for
+ * every pick. It returns prose and changes nothing — the engine's ranking and
+ * Claude's recommendation are both untouched by whatever it finds.
+ */
+async function askSecondOpinion(evaluation) {
+  if (searching) return;
+  const top = (evaluation.ranked || []).slice(0, 5).map(({ player: p }) => ({
+    name: p.name, pos: p.pos, team: p.team, value: Math.round(p.value ?? 0),
+    injury: p.injury ? [p.injury.status, p.injury.detail].filter(Boolean).join(' — ') : null,
+    tags: p.tags,
+  }));
+  if (!top.length) return;
+  searching = true; opinion = null; render();
+  try {
+    opinion = await secondOpinion({
+      authMode: state.settings.authMode,
+      apiKey: getApiKey(),
+      proxyUrl: state.settings.proxyUrl,
+      passphrase: getPassphrase(),
+      model: state.settings.model,
+      candidates: top,
+      round: evaluation.position.round,
+    });
+  } catch (err) {
+    opinion = { text: null, error: err instanceof ClaudeError ? err.message : String(err) };
+  } finally {
+    searching = false; render();
+  }
+}
+
+function opinionPanel() {
+  if (searching) {
+    return el('div', { class: 'second-opinion' },
+      el('p', { class: 'muted' }, 'Searching the web — this takes a few seconds…'));
+  }
+  if (!opinion) return null;
+  if (opinion.error) {
+    return el('div', { class: 'second-opinion' },
+      el('p', { class: 'warn-inline' }, `Second opinion failed: ${opinion.error}`));
+  }
+  return el('div', { class: 'second-opinion' },
+    el('h3', {}, 'Second opinion'),
+    el('p', { class: 'muted small' },
+      `${opinion.searches} web search${opinion.searches === 1 ? '' : 'es'} · ${opinion.model}`
+      + ' · informational only — the engine ranking is unchanged'),
+    ...String(opinion.text).split(/\n{2,}/).filter(Boolean)
+      .map((para) => el('p', { class: 'opinion-text' }, para)),
+    opinion.paused
+      ? el('p', { class: 'warn-inline' },
+          'The search stopped early (pause_turn), so this may be partial — press again for more.')
+      : null);
+}
 
 function badge(source) {
   const map = {
@@ -126,8 +186,21 @@ function render() {
       onclick: () => confirmThenAsk(evaluation, available),
     }, busy ? 'Asking Claude…' : (isCurrent() ? 'Ask Claude again' : 'Ask Claude')),
 
+    // Separate button, and deliberately not the primary one: the fast path is
+    // Ask Claude, and this is the slow path you take when you have time.
+    pos.isMyPick
+      ? el('button', {
+          class: 'btn subtle',
+          disabled: searching,
+          title: 'Search the web for rankings and news that disagree with the board. '
+            + 'Takes several seconds — use it when you are not against the clock.',
+          onclick: () => askSecondOpinion(evaluation),
+        }, searching ? 'Searching…' : 'Second opinion (web search)')
+      : null,
+
     result?.note ? el('p', { class: 'warn-inline' }, result.note) : null,
     overrideNote(result?.rec, source, evaluation),
+    opinionPanel(),
 
     shown ? pickCard(shown.primary_pick, evaluation, true) : null,
     shown?.alternatives?.length

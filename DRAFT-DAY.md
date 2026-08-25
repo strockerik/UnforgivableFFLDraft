@@ -47,7 +47,7 @@ Confirm in Setup:
   merges didn't run; the rank surrogate means `--projections` didn't come
   through.
 - **QB1 RB2 WR3 TE1 FLEX1 DST1 K1, 5 bench** — 10 teams, 15 rounds.
-- Scoring shows **6-point passing TDs, −1 INT, 0.5 PPR**.
+- Scoring shows **6-point passing TDs, −3 INT, 0.5 PPR**.
 - No parse warnings sitting unread at the bottom of the panel.
 
 ## 3. Set the real draft order, once the draw happens
@@ -81,6 +81,10 @@ picks-until-your-turn.
   don't override it for a rearrangement of numbers already on screen.
 - Watch for a **red PUP/IR/OUT chip** on the board — the engine does not read
   injuries, so an injured player can sit at the top of the board looking fine.
+- **"Second opinion (web search)"** is the slow button. It searches the web for
+  rankings and news that disagree with your board, takes several seconds, and
+  changes nothing on its own. Use it in the early rounds or on a pick you are
+  unsure about — never with the clock running down.
 
 ## Strategy document
 

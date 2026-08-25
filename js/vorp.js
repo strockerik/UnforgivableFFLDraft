@@ -167,19 +167,56 @@ export function leaguePoints(stats, rules) {
  * outside; this league pays 6 per passing touchdown, which is the worst place
  * to blend in a number whose basis is a guess. The other three still cover QB.
  */
-export function draftSharksPoints(player, rules) {
-  const ds = player.dsProjection;
-  if (!ds || ds.standardPoints == null) return null;
-  if (player.pos === 'QB' || player.pos === 'K' || player.pos === 'DST') return null;
-
+function receptionAdjustment(player, rules) {
   const recs = [player.projStats, player.espnStats, player.cbsStats]
     .map((s) => (s && s.rec_rec != null ? Number(s.rec_rec) : null))
     .filter((v) => Number.isFinite(v));
   if (!recs.length) return null;
-
   const perReception = rules?.reception ?? BASELINE_SCORING.reception;
-  const avgRec = recs.reduce((a, b) => a + b, 0) / recs.length;
-  return ds.standardPoints + avgRec * perReception;
+  return (recs.reduce((a, b) => a + b, 0) / recs.length) * perReception;
+}
+
+const DS_ELIGIBLE = (pos) => pos === 'RB' || pos === 'WR' || pos === 'TE';
+
+export function draftSharksPoints(player, rules) {
+  const ds = player.dsProjection;
+  if (!ds || ds.standardPoints == null || !DS_ELIGIBLE(player.pos)) return null;
+  const adj = receptionAdjustment(player, rules);
+  return adj == null ? null : ds.standardPoints + adj;
+}
+
+/**
+ * Draft Sharks' floor and ceiling, converted the same way as their projection.
+ *
+ * No other source here publishes a range, and the range is a different claim
+ * from the point estimate: two players can project identically while one is a
+ * safe floor and the other a lottery ticket. The app has been guessing at that
+ * distinction with a hand-tagged `sleeper` list; this is the measured version.
+ *
+ * The bands are standard-scoring too, so they need the same reception
+ * correction — applying it to the projection but not the band would compress
+ * every receiver's range toward the bottom and make the safest players look
+ * like the most volatile.
+ */
+export function draftSharksBand(player, rules) {
+  const ds = player.dsProjection;
+  if (!ds || !DS_ELIGIBLE(player.pos)) return null;
+  if (ds.floor == null && ds.ceiling == null) return null;
+  const adj = receptionAdjustment(player, rules);
+  if (adj == null) return null;
+  const mid = ds.standardPoints == null ? null : ds.standardPoints + adj;
+  const floor = ds.floor == null ? null : ds.floor + adj;
+  const ceiling = ds.ceiling == null ? null : ds.ceiling + adj;
+  return {
+    floor: floor == null ? null : Math.round(floor),
+    ceiling: ceiling == null ? null : Math.round(ceiling),
+    // Signed distances from the projection: how much is there to gain, and how
+    // much to lose. Kept separate because they answer different questions --
+    // upside decides a bench flier, downside decides a starter.
+    upside: (ceiling != null && mid != null) ? Math.round(ceiling - mid) : null,
+    downside: (floor != null && mid != null) ? Math.round(mid - floor) : null,
+    injuryRisk: ds.injuryRisk || null,
+  };
 }
 
 /**
@@ -257,6 +294,11 @@ export function computeValues(pool, settings) {
     const all = sources.map(([, v]) => v);
     p.sourceGap = all.length > 1
       ? Math.round(Math.max(...all) - Math.min(...all)) : null;
+
+    // Outcome range, where a source publishes one. Distinct from sourceGap:
+    // that measures how much the FORECASTERS disagree, this measures how wide
+    // one forecaster thinks the PLAYER's own outcomes are.
+    p.band = draftSharksBand(p, rules);
   }
 
   const usingProjections = pool.some((p) => p.projPoints != null);

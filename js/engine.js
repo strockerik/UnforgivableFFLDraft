@@ -676,6 +676,16 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
     // about RANK among FantasyPros' panel; this is disagreement about POINTS
     // between FantasyPros and ESPN, and a player can carry one without the
     // other. Only worth the model's attention when it is large.
+    // Outcome range from Draft Sharks, the only source here publishing one.
+    // A bench flier is chosen on upside; a starter is chosen on floor. The
+    // point estimate alone cannot tell those apart.
+    if (p.band && (p.band.ceiling != null || p.band.floor != null)) {
+      b.outcomeRange = {
+        floor: p.band.floor, ceiling: p.band.ceiling,
+        upsideIfHeHits: p.band.upside, downsideIfHeBusts: p.band.downside,
+      };
+      if (p.band.injuryRisk) b.injuryRiskPct = p.band.injuryRisk;
+    }
     if (p.sourceGap != null && p.sourceGap >= 15) {
       b.projectionDisagreement =
         `FantasyPros ${Math.round(p.projPointsFp)} vs ESPN ${Math.round(p.projPointsEspn)}`

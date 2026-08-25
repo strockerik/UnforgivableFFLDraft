@@ -39,7 +39,7 @@ const COLUMNS = [
   { key: 'adp', label: 'ADP', better: 'asc',
     tip: 'Average Draft Position — where the market actually drafts him. Someone still available well past his ADP is falling to you.' },
   { key: 'projPoints', label: 'PROJ', better: 'desc',
-    tip: 'Projected season fantasy points: the equal-weight mean of every source that has this player — CBS, Draft Sharks, ESPN, FantasyPros (alphabetical; none outranks another). Each is converted to THIS league\'s scoring first — 6-point passing TDs, −1 interceptions, 0.5 per reception — so no site\'s own scoring leaks in. Averaging independent forecasts beats trusting any one. A raw number: it does not account for position scarcity, which is what VALUE adds.' },
+    tip: 'Projected season fantasy points: the equal-weight mean of every source that has this player — CBS, Draft Sharks, ESPN, FantasyPros (alphabetical; none outranks another). Each is converted to THIS league\'s scoring first — 6-point passing TDs, −3 interceptions, 0.5 per reception — so no site\'s own scoring leaks in. Averaging independent forecasts beats trusting any one. A raw number: it does not account for position scarcity, which is what VALUE adds.' },
   { key: 'ecrSpread', label: 'RISK', better: 'asc',
     tip: 'How far apart the most and least optimistic expert rank him. Low means the field agrees and the projection is trustworthy; high means it is a guess dressed as a number. Hover a value to see the range, and how far apart the FantasyPros and ESPN point forecasts are. Shown as n/a for K and DST, whose spread only reflects that most experts decline to rank them.' },
 ];
@@ -259,11 +259,19 @@ function playerRow(p, onDraft, opts = {}) {
     el('span', {
       class: 'cell cell-ecrSpread'
         + (p.ecrSpread != null && p.ecrSpread >= 40 ? ' risk-high' : ''),
-      title: p.ecrSpread == null
-        ? 'Not measured for this position.'
-        : `Experts rank him between ${p.ecrBest} and ${p.ecrWorst} overall`
-          + (p.sourceGap != null
-            ? ` · FantasyPros and ESPN differ by ${p.sourceGap} projected points` : ''),
+      title: [
+        p.ecrSpread == null
+          ? 'Expert-rank spread is not measured for this position.'
+          : `Experts rank him between ${p.ecrBest} and ${p.ecrWorst} overall`,
+        p.sourceGap != null
+          ? `Sources differ by ${p.sourceGap} projected points`
+          : null,
+        p.band?.ceiling != null && p.band?.floor != null
+          ? `Draft Sharks range ${p.band.floor}–${p.band.ceiling}`
+            + (p.band.upside != null ? ` (+${p.band.upside} upside)` : '')
+          : null,
+        p.band?.injuryRisk ? `Durability risk ${p.band.injuryRisk}` : null,
+      ].filter(Boolean).join(' · '),
     }, p.pos === 'K' || p.pos === 'DST' ? 'n/a' : fmt(p.ecrSpread)),
   );
 }
