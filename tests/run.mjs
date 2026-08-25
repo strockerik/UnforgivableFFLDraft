@@ -1436,6 +1436,89 @@ test('the packet reports the quota so it cannot fire silently', () => {
   eq(q.stillWanted, false, 'and says it is met: ');
 });
 
+// The engine's conclusion was absent from the packet for the whole life of the
+// app, and the model quietly disagreed with it at pick 17 of a live practice
+// draft -- recommending a QB in prose that had already concluded RB was the
+// priority. Nothing on screen or in the payload marked the disagreement.
+test('the packet states the engine ranking, in order, with the gaps', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const avail = [
+    { id: 'h', name: 'Henry', pos: 'RB', value: 89, tier: 2, adp: 16 },
+    { id: 'l', name: 'London', pos: 'WR', value: 84, tier: 2, adp: 19 },
+    { id: 'a', name: 'Allen', pos: 'QB', value: 71, tier: 3, adp: 23 },
+  ];
+  const st = { settings, pool: avail, picks: [], valueMode: 'projections' };
+  const ev = evaluate(st, avail);
+  const rank = buildEvidence(st, avail, ev).engineRanking;
+  ok(Array.isArray(rank) && rank.length, 'the packet must carry a ranking');
+  eq(rank[0].rank, 1);
+  eq(rank[0].name, ev.ranked[0].player.name, 'rank 1 must be the engine top pick: ');
+  eq(rank[0].pointsBehindTop, 0, 'the leader trails himself by nothing: ');
+  // The gap is what separates a close call from a blowout, so it must be real.
+  for (let i = 1; i < rank.length; i += 1) {
+    ok(rank[i].pointsBehindTop >= rank[i - 1].pointsBehindTop,
+      'gaps must grow monotonically down the ranking');
+    eq(rank[i].pointsBehindTop, Math.round(ev.ranked[0].score - ev.ranked[i].score),
+      'gap is measured against the leader: ');
+  }
+  ok(rank[rank.length - 1].pointsBehindTop > 0,
+    'a trailing candidate must show a positive deficit');
+});
+
+// The exact board that failed: Erik held Bijan, six picks stood between him and
+// his next turn, QB attrition was 0 and RB attrition was 34. The engine wanted
+// the running back. Guarding it directly, because this is the shape of error
+// that survived 169 tests.
+test('a zero-attrition QB never outranks a high-attrition RB of greater value', () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const bijan = { id: 'b', name: 'Bijan', pos: 'RB', value: 120, tier: 1, adp: 4 };
+  const avail = [
+    { id: 'h', name: 'Henry', pos: 'RB', value: 89, tier: 2, adp: 16 },
+    { id: 'a', name: 'Allen', pos: 'QB', value: 71, tier: 3, adp: 23 },
+  ];
+  const st = { settings, pool: [bijan, ...avail], valueMode: 'projections',
+    picks: [{ pickNo: 1, playerId: 'b', teamSlot: settings.slot }] };
+  const ev = evaluate(st, avail);
+  eq(ev.ranked[0].player.name, 'Henry',
+    'the more valuable RB must lead the QB he outgrades by 18: ');
+  const rank = buildEvidence(st, avail, ev).engineRanking;
+  eq(rank[0].name, 'Henry', 'and the packet must say so out loud: ');
+});
+
+// Round 12 of a live draft offered two Green Bay receivers: Jayden Reed at -7
+// untagged, Matthew Golden at -19 with a sleeper tag. The quota was already
+// filled by a tagged RB, so the tag was worth nothing and the engine ranked
+// Reed 16 points ahead. It read as the tag overriding value, and the tag is
+// worth 25 -- more than the 12-point gap -- so the suspicion was reasonable.
+// A spent quota must stay spent.
+test('a tag stops being worth anything once the quota is filled', () => {
+  const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
+  // The lineup must be FULL, or a receiver fills an empty WR slot and the
+  // starter bonus -- not the tag -- decides the comparison.
+  const roster = [
+    { id: 'q', pos: 'QB', value: 40 }, { id: 'r1', pos: 'RB', value: 90 },
+    { id: 'r2', pos: 'RB', value: 60 }, { id: 'w1', pos: 'WR', value: 50 },
+    { id: 'w2', pos: 'WR', value: 45 }, { id: 'w3', pos: 'WR', value: 40 },
+    { id: 't1', pos: 'TE', value: 30 }, { id: 'f1', pos: 'RB', value: 25 },
+    { id: 'jcm', name: 'Croskey-Merritt', pos: 'RB', value: 10, tags: ['sleeper'] },
+  ];
+  const st = { settings, pool: roster, valueMode: 'projections',
+    picks: roster.map((p, i) => ({ pickNo: i + 1, playerId: p.id, teamSlot: settings.slot })) };
+  const ctx = { analysis: rosterAnalysis(st), position: draftPosition(117, settings),
+    settings, cliffs: {}, flexBaseline: 175,
+    wantsUpside: evaluate(st, []).wantsUpside };
+  eq(ctx.wantsUpside, false, 'one tagged RB fills a quota of one: ');
+  const reed = { pos: 'WR', value: -7, projPoints: 145 };
+  const golden = { pos: 'WR', value: -19, projPoints: 134, tags: ['sleeper'] };
+  ok(scoreCandidate(reed, ctx) > scoreCandidate(golden, ctx),
+    'the better receiver must win once the tag has nothing left to buy');
+  // And the bonus must be the whole difference when the quota IS open, so a
+  // regression in the gate shows up here rather than silently reordering.
+  const open = { ...ctx, wantsUpside: true };
+  ok(scoreCandidate(golden, open) > scoreCandidate(golden, ctx),
+    'an open quota must still pay the tagged player');
+});
+
 test('the upside bonus is bounded and never reaches a kicker', () => {
   const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
   const roster = [

@@ -784,6 +784,35 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       countsOnlyAt: UPSIDE_POSITIONS,
       stillWanted: evaluation.wantsUpside === true,
     },
+    // What THIS engine concluded, stated outright.
+    //
+    // Everything else in the packet is raw inputs, and for a long time that was
+    // all the model got -- it re-derived a ranking from the numbers every time.
+    // Usually it landed on the same answer. When it did not, nothing anywhere
+    // said so. At pick 17 of a live practice draft the engine ranked Derrick
+    // Henry first (138) and the model recommended Josh Allen (95) in prose that
+    // had already worked out the correct answer: "waiting on RB costs 34
+    // points, making elite RB your next priority, not QB." It then recommended
+    // the QB. Henry was taken by hand and Allen survived the round, which is
+    // exactly what the packet's own attrition numbers predicted.
+    //
+    // A source of truth that never states its conclusion cannot be departed
+    // from knowingly, only ignored by accident. So the score is shipped, the
+    // prompt requires a named reason to deviate, and recs.js flags any
+    // disagreement on screen. The model is still free to override -- it sees
+    // injury news and bust consensus that no score captures -- but the
+    // override is now a visible act rather than a silent one.
+    engineRanking: (evaluation.ranked || []).slice(0, 6).map(({ player, score }, i) => ({
+      rank: i + 1,
+      name: player.name,
+      pos: player.pos,
+      score: Math.round(score),
+      value: Math.round(player.value ?? 0),
+      // The gap is the point: rank 1 over rank 2 by 27 is a different claim
+      // from rank 1 over rank 2 by 2, and only the second is a close call.
+      pointsBehindTop: i === 0 ? 0
+        : Math.round((evaluation.ranked[0].score ?? 0) - (score ?? 0)),
+    })),
     // What each position costs you if you wait. This is the measured answer to
     // "can this position wait", where a tier count is only a proxy for it.
     attritionBeforeYourNextPick: evaluation.survivingValue

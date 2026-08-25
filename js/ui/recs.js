@@ -21,6 +21,31 @@ function badge(source) {
   return el('span', { class: `badge ${cls}` }, label);
 }
 
+/**
+ * Flag a Claude pick that is not the engine's top-ranked player.
+ *
+ * Overriding the engine is legitimate — Claude reads injury news and bust
+ * consensus that no score captures. Overriding it *invisibly* is not: a live
+ * practice draft took Josh Allen at 95 over Derrick Henry at 138 and nothing
+ * on screen distinguished that from the engine's own answer. The user only
+ * caught it by noticing Allen survived the round.
+ *
+ * Both numbers are already here, so the check costs nothing and cannot be
+ * skipped by a model that forgets to mention it.
+ */
+function overrideNote(rec, source, evaluation) {
+  if (source !== 'claude' || !rec?.primary_pick) return null;
+  const top = evaluation.ranked?.[0];
+  if (!top || top.player.name === rec.primary_pick.name) return null;
+  const chosen = evaluation.ranked.find((r) => r.player.name === rec.primary_pick.name);
+  const gap = chosen ? Math.round(top.score - chosen.score) : null;
+  return el('p', { class: 'warn-inline' },
+    `Claude overrode the engine: it ranks ${top.player.name} (${top.player.pos}) first`
+    + (gap != null ? `, ${gap} points ahead of ${rec.primary_pick.name}` : '')
+    + '. Read the reasoning before accepting — take the engine\'s pick if the '
+    + 'override is not justified by something the numbers cannot see.');
+}
+
 function pickCard(pick, evaluation, primary) {
   const player = evaluation.ranked.find((r) => r.player.name === pick.name)?.player;
   return el('div', { class: 'rec-card' + (primary ? ' rec-primary' : '') },
@@ -102,6 +127,7 @@ function render() {
     }, busy ? 'Asking Claude…' : (isCurrent() ? 'Ask Claude again' : 'Ask Claude')),
 
     result?.note ? el('p', { class: 'warn-inline' }, result.note) : null,
+    overrideNote(result?.rec, source, evaluation),
 
     shown ? pickCard(shown.primary_pick, evaluation, true) : null,
     shown?.alternatives?.length
