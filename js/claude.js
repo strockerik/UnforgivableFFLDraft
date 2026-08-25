@@ -5,7 +5,7 @@
 // dangerous because the key is visible to anyone with access to this browser.
 // Acceptable for a private single-user tool; not for anything shared.
 
-import { API_URL, API_VERSION, modelSupportsEffort } from './config.js';
+import { API_URL, API_VERSION, modelSupportsEffort, webSearchToolFor } from './config.js';
 
 // Structured output schema. Every object closed (additionalProperties: false)
 // with all fields required, so the response shape is guaranteed rather than
@@ -435,7 +435,9 @@ export async function secondOpinion({
   const body = {
     model,
     max_tokens: 4000,
-    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6 }],
+    // Version resolved per model -- see webSearchToolFor. Sending the wrong
+    // one is a hard 400, not a quieter answer.
+    tools: [{ type: webSearchToolFor(model), name: 'web_search', max_uses: 6 }],
     system: `You are a second opinion on a fantasy football draft pick, not the primary recommendation.
 
 The user's app already values players from an equal-weight blend of four projection sources (CBS, Draft Sharks, ESPN, FantasyPros), all converted to his league's scoring: 10 teams, half-PPR, 6-point passing touchdowns, -3 per interception, starting QB1/RB2/WR3/TE1/FLEX1/DST1/K1.

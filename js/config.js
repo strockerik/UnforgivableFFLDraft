@@ -123,14 +123,33 @@ export const SCARCITY_RANK = { RB: 1, TE: 2, WR: 3, QB: 4, DST: 5, K: 6 };
 // to the deterministic fallback. Sending a parameter a model cannot accept is
 // not a graceful degradation, it is a broken call.
 export const MODELS = [
-  { id: 'claude-opus-5', label: 'Opus 5 — best quality', inPrice: 5, outPrice: 25, supportsEffort: true },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5 — faster', inPrice: 3, outPrice: 15, supportsEffort: true },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — cheapest', inPrice: 1, outPrice: 5, supportsEffort: false },
+  { id: 'claude-opus-5', label: 'Opus 5 — best quality', inPrice: 5, outPrice: 25,
+    supportsEffort: true, searchTool: 'web_search_20260209' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5 — faster', inPrice: 3, outPrice: 15,
+    supportsEffort: true, searchTool: 'web_search_20260209' },
+  // Haiku takes the BASIC search tool. The 20260209 variant has dynamic
+  // filtering built in, which runs code execution under the hood -- that is
+  // programmatic tool calling, and Haiku 4.5 does not support it. Sending the
+  // newer tool to Haiku fails the whole request with "does not support
+  // programmatic tool calling ... explicitly set allowed_callers".
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — cheapest', inPrice: 1, outPrice: 5,
+    supportsEffort: false, searchTool: 'web_search_20250305' },
 ];
 
 /** Whether a model accepts output_config.effort. Unknown models are assumed to. */
 export const modelSupportsEffort = (id) =>
   MODELS.find((m) => m.id === id)?.supportsEffort !== false;
+
+/**
+ * The web-search tool version this model can actually run.
+ *
+ * Capability differs by model and the failure is a hard request error, not a
+ * degraded answer -- so it is resolved from the table rather than assumed.
+ * Unknown models get the basic tool: it works everywhere search is supported,
+ * where the newer one does not.
+ */
+export const webSearchToolFor = (id) =>
+  MODELS.find((m) => m.id === id)?.searchTool || 'web_search_20250305';
 
 export const EFFORTS = ['low', 'medium', 'high'];
 

@@ -16,7 +16,7 @@ import { evaluate, deterministicPick, buildEvidence, rosterAnalysis, tierCliffs,
          projectBoard, attritionCost } from '../js/engine.js';
 import { validateRecommendation, recommend, RECOMMENDATION_SCHEMA } from '../js/claude.js';
 import { parseStrategyDoc, applyTags } from '../js/strategy.js';
-import { DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
+import { webSearchToolFor, DEFAULT_SETTINGS, BASELINE_SCORING } from '../js/config.js';
 import { coachByName, reliableHabits, habitSummary, coachesUntilMyTurn,
          positionsAtRisk, TEAM_TO_COACH } from '../js/coaches.js';
 import { makeRng, mockPickFor, unfilledSlots, runOpponentsUntilMyTurn } from '../js/mock.js';
@@ -1638,6 +1638,21 @@ test('a fourth source takes an equal vote at RB, WR and TE', () => {
   eq(p[0].sourceCount, 4);
   eq(p[0].projPoints, 75, 'all four weighted equally: ');
   eq(p[0].sourceGap, 90, 'gap spans most to least optimistic: ');
+});
+
+// Haiku 4.5 cannot run web_search_20260209: its dynamic filtering uses code
+// execution under the hood, which is programmatic tool calling. Sending it
+// anyway fails the whole request, so the version is resolved per model.
+test('each model gets a web-search tool it can actually run', () => {
+  eq(webSearchToolFor('claude-opus-5'), 'web_search_20260209');
+  eq(webSearchToolFor('claude-sonnet-5'), 'web_search_20260209');
+  eq(webSearchToolFor('claude-haiku-4-5'), 'web_search_20250305',
+    'Haiku needs the basic tool: ');
+  // An unknown model falls back to the BASIC tool, not the newer one — basic
+  // works everywhere search is supported, so an unknown id degrades to the
+  // safe option rather than to a hard request error.
+  eq(webSearchToolFor('some-future-model'), 'web_search_20250305',
+    'unknown models fall back to the tool that works everywhere: ');
 });
 
 test('the upside bonus is bounded and never reaches a kicker', () => {
