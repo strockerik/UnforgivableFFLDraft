@@ -69,3 +69,4 @@ data/Yahoo/*.html
 
 # Cached Sleeper season stats for the draft-performance ranking (regenerable).
 data/season-stats/
+data/espn-projections.json
