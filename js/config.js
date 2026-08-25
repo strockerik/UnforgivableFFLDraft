@@ -32,7 +32,11 @@ export const DEFAULT_SETTINGS = {
   // an older version. Without this a browser that saved settings before the
   // Yahoo export was decoded keeps drafting against the wrong replacement
   // levels forever, and nothing surfaces the mistake.
-  settingsVersion: 2,
+  settingsVersion: 3,
+  // Average FantasyPros and ESPN projections rather than trusting one source.
+  // See the comment in computeValues: single-source valuation is subject to the
+  // optimizer's curse, which inflated a practice draft by 86 points.
+  blendSources: true,
   teams: 10,
   // Kept in sync with draftOrder.indexOf(myTeamName)+1 by the setup panel.
   // Seeded from team-key order, which is NOT the draft order — reset on draft day.

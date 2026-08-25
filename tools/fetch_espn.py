@@ -149,6 +149,8 @@ def main():
     ap.add_argument("--limit", type=int, default=900)
     ap.add_argument("--verify", action="store_true",
                     help="check the stat-ID mapping against ESPN's own totals and exit")
+    ap.add_argument("--no-merge", action="store_true",
+                    help="write the cache only; do not merge into data/players.json")
     args = ap.parse_args()
 
     print(f"Fetching ESPN 2026 projections (limit {args.limit}) ...")
@@ -201,6 +203,50 @@ def main():
     from collections import Counter
     for pos, n in Counter(v["pos"] for v in out.values()).most_common():
         print(f"  {pos:4} {n}")
+
+    if args.no_merge:
+        return
+    merge_into_pool(out)
+
+
+def merge_into_pool(espn):
+    """Attach ESPN stat lines to the pool as `espnStats`, for js/vorp.js to blend.
+
+    Kept as a second stat line rather than a second point total for the same
+    reason the fetch stores stats: the blend has to happen AFTER league scoring,
+    or a 6-point passing touchdown gets averaged with a 4-point one.
+    """
+    pool_path = os.path.join(ROOT, "data", "players.json")
+    if not os.path.exists(pool_path):
+        print("\nNo data/players.json yet — cache written, nothing to merge into.")
+        return
+    with open(pool_path, encoding="utf-8") as f:
+        payload = json.load(f)
+    players = payload.get("players", [])
+
+    matched = 0
+    for p in players:
+        # Cleared first: a stale ESPN line silently outvoting a fresh
+        # FantasyPros one is the failure mode that would be hardest to notice.
+        p.pop("espnStats", None)
+        e = espn.get(name_key(p.get("name", "")))
+        if not e or e["pos"] != p.get("pos"):
+            continue
+        p["espnStats"] = e["projStats"]
+        matched += 1
+
+    payload["espnUpdated"] = __import__("time").strftime("%Y-%m-%dT%H:%M:%S")
+    with open(pool_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=1)
+    top = [p for p in players if (p.get("ecr") or 999) <= 150]
+    hit = [p for p in top if p.get("espnStats")]
+    print(f"\nMerged ESPN lines onto {matched} of {len(players)} players "
+          f"({len(hit)}/{len(top)} of the top 150 by ECR)")
+    missing = [p["name"] for p in top if not p.get("espnStats")][:8]
+    if missing:
+        print("  top-150 without an ESPN line (will use FantasyPros alone): "
+              + ", ".join(missing))
+    print("\nReload the pool in the app to pick it up.")
 
 
 if __name__ == "__main__":

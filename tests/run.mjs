@@ -1554,6 +1554,54 @@ test('the engine still scores injured and healthy players identically', () => {
     'injury must not move the deterministic score: ');
 });
 
+// Single-source valuation is subject to the optimizer's curse: a roster built
+// by maximizing one source's numbers is selected for that source's optimism.
+// Measured on a practice draft, Erik's starters fell 460 -> 374 when re-scored
+// against ESPN while the league total barely moved.
+test('projections from two sources are averaged, not concatenated', () => {
+  const S = { ...DEFAULT_SETTINGS };
+  // 300 receiving yards apart: FantasyPros 30 pts, ESPN 60 pts, blend 45.
+  const pool = [{ id: 'a', name: 'Split', pos: 'WR', posRank: 1, ecr: 1,
+    projStats: { rec_rec: 0, rec_yds: 300, rec_tds: 0 },
+    espnStats: { rec_rec: 0, rec_yds: 600, rec_tds: 0 } }];
+  const r = computeValues(pool, S);
+  eq(pool[0].projPointsFp, 30, 'FantasyPros line scored under league rules: ');
+  eq(pool[0].projPointsEspn, 60, 'ESPN line scored under the SAME rules: ');
+  eq(pool[0].projPoints, 45, 'and averaged 50/50: ');
+  eq(pool[0].sourceGap, 30, 'with the disagreement recorded: ');
+  eq(r.blended, 1);
+});
+
+test('blending is skippable and a lone source still works', () => {
+  const S = { ...DEFAULT_SETTINGS };
+  const one = [{ id: 'a', pos: 'WR', posRank: 1,
+    projStats: { rec_rec: 0, rec_yds: 300, rec_tds: 0 },
+    espnStats: { rec_rec: 0, rec_yds: 600, rec_tds: 0 } }];
+  eq(computeValues(one, { ...S, blendSources: false }).blended, 0);
+  eq(one[0].projPoints, 30, 'blend off falls back to FantasyPros alone: ');
+  eq(one[0].sourceGap, 30, 'but the disagreement is still measured: ');
+  // A player ESPN never projected must not be dropped or zeroed.
+  const solo = [{ id: 'b', pos: 'WR', posRank: 1,
+    projStats: { rec_rec: 0, rec_yds: 300, rec_tds: 0 } }];
+  computeValues(solo, S);
+  eq(solo[0].projPoints, 30, 'a FantasyPros-only player keeps his projection: ');
+  eq(solo[0].sourceGap, null, 'and has no disagreement to report: ');
+});
+
+// The blend must happen AFTER league scoring. Averaging the sources' published
+// totals would average a 4-point passing TD with a 6-point one.
+test('the blend applies this league scoring to BOTH sources', () => {
+  const S = { ...DEFAULT_SETTINGS };
+  const qb = [{ id: 'q', pos: 'QB', posRank: 1,
+    projStats: { pass_yds: 0, pass_tds: 10, pass_ints: 0 },
+    espnStats: { pass_yds: 0, pass_tds: 20, pass_ints: 0 } }];
+  computeValues(qb, S);
+  // 6-point TDs: 60 and 120, averaging 90. At 4-point they would be 40/80 -> 60.
+  eq(qb[0].projPointsFp, 60, "FantasyPros TDs paid at this league's 6: ");
+  eq(qb[0].projPointsEspn, 120, 'ESPN TDs paid at the same 6, not their default 4: ');
+  eq(qb[0].projPoints, 90);
+});
+
 test('the upside bonus is bounded and never reaches a kicker', () => {
   const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
   const roster = [

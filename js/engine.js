@@ -671,6 +671,16 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       // analysts think he is overpriced" — the bust tags measure that.
       expertRankSpread: p.ecrSpread,
     };
+    // How far the two independent projection sources are apart, in this
+    // league's points. Distinct from expertRankSpread, which is disagreement
+    // about RANK among FantasyPros' panel; this is disagreement about POINTS
+    // between FantasyPros and ESPN, and a player can carry one without the
+    // other. Only worth the model's attention when it is large.
+    if (p.sourceGap != null && p.sourceGap >= 15) {
+      b.projectionDisagreement =
+        `FantasyPros ${Math.round(p.projPointsFp)} vs ESPN ${Math.round(p.projPointsEspn)}`
+        + ` — ${p.sourceGap} points apart`;
+    }
     // When projections are loaded, send both valuations plus their gap. The
     // gap is where a statistical forecast and the expert market disagree, and
     // saying so lets the model reason about it instead of guessing.

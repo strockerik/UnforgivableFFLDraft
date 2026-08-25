@@ -158,11 +158,52 @@ export function computeValues(pool, settings) {
   // refreshPool() recomputes correctly instead of keeping a stale total.
   // projPointsGeneric preserves the published figure so the difference stays
   // auditable rather than silently replacing what the source said.
+  // Average the two projection sources rather than trusting one.
+  //
+  // Every number in this app used to come from FantasyPros, and the debrief
+  // then graded the draft with those same numbers. Re-scored against ESPN's
+  // independent projections, Erik's "winning" practice roster fell from 1st
+  // (460) to 3rd (374) while the league total barely moved -- the loss was
+  // concentrated on his roster specifically. That is the optimizer's curse: a
+  // roster built by maximizing one source's estimates is selected for that
+  // source's optimism, so any independent ruler marks it back down. It is not
+  // a bug, it is what maximizing on noisy estimates does, and it recurs every
+  // draft.
+  //
+  // Averaging defuses it -- you cannot be selected for one source's optimism
+  // while scoring on two. Twelve seasons of projection data from Fantasy
+  // Football Analytics found aggregate projections beat individual sources in
+  // 69% of head-to-head comparisons, and that simple and accuracy-weighted
+  // averages performed near-identically, which is why this is a flat 50/50 and
+  // not a tuned weighting.
+  //
+  // The blend happens HERE, after league scoring, not in the fetch layer.
+  // Averaging the sources' published totals would average a 4-point passing
+  // touchdown with a 6-point one and call the result a forecast.
+  const espnWeight = settings.blendSources === false ? 0 : 0.5;
+  let blended = 0;
   for (const p of pool) {
-    const exact = leaguePoints(p.projStats, rules);
-    if (exact == null) continue;
+    const fromFp = leaguePoints(p.projStats, rules);
+    const fromEspn = leaguePoints(p.espnStats, rules);
+    if (fromFp == null && fromEspn == null) continue;
     if (p.projPointsGeneric == null) p.projPointsGeneric = p.projPoints;
-    p.projPoints = Math.round(exact * 10) / 10;
+
+    p.projPointsFp = fromFp == null ? null : Math.round(fromFp * 10) / 10;
+    p.projPointsEspn = fromEspn == null ? null : Math.round(fromEspn * 10) / 10;
+
+    const both = fromFp != null && fromEspn != null && espnWeight > 0;
+    if (both) blended += 1;
+    const combined = both
+      ? fromFp * (1 - espnWeight) + fromEspn * espnWeight
+      : (fromFp ?? fromEspn);
+    p.projPoints = Math.round(combined * 10) / 10;
+
+    // How far apart the two forecasts are, in this league's points. Distinct
+    // from ecrSpread, which measures disagreement about RANK among experts:
+    // this is disagreement about POINTS between two independent models, and a
+    // player can easily carry one without the other.
+    p.sourceGap = fromFp != null && fromEspn != null
+      ? Math.round(Math.abs(fromFp - fromEspn)) : null;
   }
 
   const usingProjections = pool.some((p) => p.projPoints != null);
@@ -214,6 +255,11 @@ export function computeValues(pool, settings) {
     levels,
     replacementPoints,
     hasBoth: usingProjections,
+    // How many players were actually averaged, so the UI can say which value
+    // model is live rather than leaving the user to guess. CLAUDE.md requires
+    // the active mode be labelled; a blend that looks identical to a single
+    // source on screen would break that.
+    blended,
   };
 }
 
@@ -221,6 +267,14 @@ export const VALUE_MODE_LABEL = {
   projections: 'VORP from projected points, shown alongside the rank-based model',
   surrogate: 'Rank-based value — no projections loaded',
 };
+
+/** Honest one-line description of what `value` currently means. */
+export function valueModeLabel(mode, blended = 0) {
+  if (mode !== 'projections') return VALUE_MODE_LABEL.surrogate;
+  return blended > 0
+    ? `VORP from a 50/50 blend of FantasyPros and ESPN projections (${blended} players averaged)`
+    : VALUE_MODE_LABEL.projections;
+}
 
 /**
  * Players where the forecast and the market disagree most, either way.

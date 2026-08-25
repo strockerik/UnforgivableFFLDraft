@@ -440,3 +440,7 @@ body {
 /* Filler-hiding toggle. Reads as a chip but is a switch, so it sits apart. */
 .chip-toggle { margin-left: auto; font-weight: 700; }
 .chip-toggle.active { background: var(--panel-2); border-color: var(--line); color: var(--text); }
+
+/* A wide expert spread is a real warning, but a quiet one: it means the
+   projection is a guess dressed as a number, not that the player is bad. */
+.cell-ecrSpread.risk-high { color: var(--warn-ink); font-weight: 650; }

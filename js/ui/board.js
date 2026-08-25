@@ -39,9 +39,9 @@ const COLUMNS = [
   { key: 'adp', label: 'ADP', better: 'asc',
     tip: 'Average Draft Position — where the market actually drafts him. Someone still available well past his ADP is falling to you.' },
   { key: 'projPoints', label: 'PROJ', better: 'desc',
-    tip: 'Projected season fantasy points, rebuilt from FantasyPros stat components under THIS league\'s scoring — 6-point passing TDs and −3 interceptions, not the published 4-point total. A raw number: it does not account for position scarcity, which is what VALUE adds.' },
+    tip: 'Projected season fantasy points: a 50/50 average of FantasyPros and ESPN, each rebuilt from their own stat components under THIS league\'s scoring — 6-point passing TDs and −1 interceptions, not either site\'s published 4-point total. Averaging two independent forecasts beats trusting one. A raw number: it does not account for position scarcity, which is what VALUE adds.' },
   { key: 'ecrSpread', label: 'RISK', better: 'asc',
-    tip: 'How far apart the most and least optimistic expert rank him. Low means the field agrees and the projection is trustworthy; high means it is a guess dressed as a number. Blank for K and DST, whose spread only reflects that most experts do not rank them.' },
+    tip: 'How far apart the most and least optimistic expert rank him. Low means the field agrees and the projection is trustworthy; high means it is a guess dressed as a number. Hover a value to see the range, and how far apart the FantasyPros and ESPN point forecasts are. Shown as n/a for K and DST, whose spread only reflects that most experts decline to rank them.' },
 ];
 
 // 8. One loud signal per row. Risk tags outrank praise: a drafter needs
@@ -249,6 +249,22 @@ function playerRow(p, onDraft, opts = {}) {
     el('span', { class: 'cell cell-adp' },
       fmt(p.adp, p.adp != null && !Number.isInteger(p.adp) ? 1 : 0)),
     el('span', { class: 'cell cell-projPoints' }, fmt(p.projPoints)),
+    // RISK had a column header and a sort handler but no cell, so it rendered
+    // blank for all 865 players. Backfilling ecrSpread onto cached pools fixed
+    // the data and left the hole, which is why it still looked broken after.
+    //
+    // K and DST print "n/a" rather than nothing: their spread is null on
+    // purpose (it measures only that most experts decline to rank them), and
+    // an empty cell is indistinguishable from the bug that was just here.
+    el('span', {
+      class: 'cell cell-ecrSpread'
+        + (p.ecrSpread != null && p.ecrSpread >= 40 ? ' risk-high' : ''),
+      title: p.ecrSpread == null
+        ? 'Not measured for this position.'
+        : `Experts rank him between ${p.ecrBest} and ${p.ecrWorst} overall`
+          + (p.sourceGap != null
+            ? ` · FantasyPros and ESPN differ by ${p.sourceGap} projected points` : ''),
+    }, p.pos === 'K' || p.pos === 'DST' ? 'n/a' : fmt(p.ecrSpread)),
   );
 }
 
