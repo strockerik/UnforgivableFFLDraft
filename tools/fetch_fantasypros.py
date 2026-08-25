@@ -577,7 +577,13 @@ def main():
     print("  " + "  ".join(f"{k}:{v}" for k, v in sorted(counts.items())))
     for n in notes:
         print(f"  {n}")
-    print("\nNow open the app and press 'Load data/players.json'.")
+    # This script rewrites players.json wholesale, so any injury data merged by
+    # fetch_injuries.py is gone. Silently losing it on draft morning would be
+    # the worst possible time -- the pool would look complete and every player
+    # would read as healthy.
+    print("\nInjury data was cleared by this rewrite. Run:")
+    print("    python3 tools/fetch_injuries.py")
+    print("\nThen open the app and press 'Load data/players.json'.")
 
 
 if __name__ == "__main__":
