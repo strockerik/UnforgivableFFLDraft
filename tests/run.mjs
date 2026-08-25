@@ -1567,9 +1567,16 @@ test('projections from two sources are averaged, not concatenated', () => {
   const r = computeValues(pool, S);
   eq(pool[0].projPointsFp, 30, 'FantasyPros line scored under league rules: ');
   eq(pool[0].projPointsEspn, 60, 'ESPN line scored under the SAME rules: ');
-  eq(pool[0].projPoints, 45, 'and averaged 50/50: ');
+  eq(pool[0].projPoints, 45, 'and averaged equally: ');
   eq(pool[0].sourceGap, 30, 'with the disagreement recorded: ');
   eq(r.blended, 1);
+  // A third source gets an equal vote, not a smaller one.
+  const three = [{ id: 'b', pos: 'WR', posRank: 1,
+    projStats: { rec_yds: 300 }, espnStats: { rec_yds: 600 }, cbsStats: { rec_yds: 900 } }];
+  computeValues(three, S);
+  eq(three[0].projPoints, 60, 'three sources average to the middle: ');
+  eq(three[0].sourceCount, 3);
+  eq(three[0].sourceGap, 60, 'and the gap spans most to least optimistic: ');
 });
 
 test('blending is skippable and a lone source still works', () => {

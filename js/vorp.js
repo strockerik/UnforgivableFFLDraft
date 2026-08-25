@@ -180,30 +180,43 @@ export function computeValues(pool, settings) {
   // The blend happens HERE, after league scoring, not in the fetch layer.
   // Averaging the sources' published totals would average a 4-point passing
   // touchdown with a 6-point one and call the result a forecast.
-  const espnWeight = settings.blendSources === false ? 0 : 0.5;
+  const blendOn = settings.blendSources !== false;
   let blended = 0;
   for (const p of pool) {
-    const fromFp = leaguePoints(p.projStats, rules);
-    const fromEspn = leaguePoints(p.espnStats, rules);
-    if (fromFp == null && fromEspn == null) continue;
+    // Equal weight, one vote each. The twelve-season study found simple and
+    // accuracy-weighted averages performed near-identically, so weighting the
+    // sources would add fitting risk for no measured gain.
+    const sources = [
+      ['fp', leaguePoints(p.projStats, rules)],
+      ['espn', leaguePoints(p.espnStats, rules)],
+      ['cbs', leaguePoints(p.cbsStats, rules)],
+    ].filter(([, v]) => v != null);
+    if (!sources.length) continue;
     if (p.projPointsGeneric == null) p.projPointsGeneric = p.projPoints;
 
-    p.projPointsFp = fromFp == null ? null : Math.round(fromFp * 10) / 10;
-    p.projPointsEspn = fromEspn == null ? null : Math.round(fromEspn * 10) / 10;
+    const r1 = (v) => Math.round(v * 10) / 10;
+    p.projPointsFp = sources.find(([k]) => k === 'fp')?.[1];
+    p.projPointsEspn = sources.find(([k]) => k === 'espn')?.[1];
+    p.projPointsCbs = sources.find(([k]) => k === 'cbs')?.[1];
+    for (const k of ['projPointsFp', 'projPointsEspn', 'projPointsCbs']) {
+      p[k] = p[k] == null ? null : r1(p[k]);
+    }
 
-    const both = fromFp != null && fromEspn != null && espnWeight > 0;
-    if (both) blended += 1;
-    const combined = both
-      ? fromFp * (1 - espnWeight) + fromEspn * espnWeight
-      : (fromFp ?? fromEspn);
-    p.projPoints = Math.round(combined * 10) / 10;
+    // Blending off falls back to FantasyPros, which is what the app used for
+    // its whole life -- so the switch genuinely restores the old behaviour
+    // rather than approximating it.
+    const used = blendOn ? sources : sources.filter(([k]) => k === 'fp');
+    const pts = (used.length ? used : sources).map(([, v]) => v);
+    p.projPoints = r1(pts.reduce((t, v) => t + v, 0) / pts.length);
+    p.sourceCount = blendOn ? sources.length : 1;
+    if (blendOn && sources.length > 1) blended += 1;
 
-    // How far apart the two forecasts are, in this league's points. Distinct
-    // from ecrSpread, which measures disagreement about RANK among experts:
-    // this is disagreement about POINTS between two independent models, and a
-    // player can easily carry one without the other.
-    p.sourceGap = fromFp != null && fromEspn != null
-      ? Math.round(Math.abs(fromFp - fromEspn)) : null;
+    // Spread between the most and least optimistic source, in league points.
+    // Distinct from ecrSpread, which is disagreement about RANK among one
+    // panel; this is disagreement about POINTS between independent models.
+    const all = sources.map(([, v]) => v);
+    p.sourceGap = all.length > 1
+      ? Math.round(Math.max(...all) - Math.min(...all)) : null;
   }
 
   const usingProjections = pool.some((p) => p.projPoints != null);
@@ -272,7 +285,8 @@ export const VALUE_MODE_LABEL = {
 export function valueModeLabel(mode, blended = 0) {
   if (mode !== 'projections') return VALUE_MODE_LABEL.surrogate;
   return blended > 0
-    ? `VORP from a 50/50 blend of FantasyPros and ESPN projections (${blended} players averaged)`
+    ? `VORP from an equal-weight blend of FantasyPros, ESPN and CBS projections `
+      + `(${blended} players averaged across 2+ sources)`
     : VALUE_MODE_LABEL.projections;
 }
 

@@ -10,7 +10,8 @@ fields, so injuries must be merged *after* it, never before.
 cd "~/Desktop/myStuff/Apps/Fantasy Football Draft"
 
 python3 tools/fetch_fantasypros.py --season 2026 --scoring HALF --projections
-python3 tools/fetch_espn.py              # second projection source, blended 50/50
+python3 tools/fetch_espn.py              # 2nd projection source
+python3 tools/fetch_cbs.py               # 3rd projection source
 python3 tools/fetch_injuries.py          # MUST run last — see above
 ```
 
@@ -40,9 +41,10 @@ on `file://`, so this needs the http origin).
 
 Confirm in Setup:
 
-- Value mode says **blend of FantasyPros and ESPN** with a player count in the
-  hundreds. "VORP from projected points" alone means the ESPN merge didn't run;
-  the rank surrogate means `--projections` didn't come through.
+- Value mode says **equal-weight blend of FantasyPros, ESPN and CBS** with a
+  player count in the hundreds. "VORP from projected points" alone means the
+  ESPN and CBS merges didn't run; the rank surrogate means `--projections`
+  didn't come through.
 - **QB1 RB2 WR3 TE1 FLEX1 DST1 K1, 5 bench** — 10 teams, 15 rounds.
 - Scoring shows **6-point passing TDs, −1 INT, 0.5 PPR**.
 - No parse warnings sitting unread at the bottom of the panel.
