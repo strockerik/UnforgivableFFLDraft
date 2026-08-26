@@ -18,17 +18,19 @@
 <div id="live-region" class="visually-hidden" aria-live="polite"></div>
 
 <main class="layout">
-  <section id="board" class="panel board" aria-label="Available players"></section>
+  <!-- Board and second opinion share one column so the panel sits directly
+       under the player list. As separate grid children they were in different
+       rows, and row 2 cannot start until the TALLEST row-1 item ends -- which
+       is the sidebar, leaving a screen of empty space above the panel. -->
+  <div class="maincol">
+    <section id="board" class="panel board" aria-label="Available players"></section>
+    <section id="second-opinion" aria-label="Second opinion" hidden></section>
+  </div>
 
   <div class="sidecol">
     <section id="recs" class="panel recs" aria-label="Recommendation"></section>
     <section id="roster" class="panel roster" aria-label="Your roster"></section>
   </div>
-
-  <!-- Third grid child, so it lands in row 2 under the board rather than in
-       the sidebar. A long search result made the sidebar scroll for a screen
-       and a half while the space under the player list sat empty. -->
-  <section id="second-opinion" aria-label="Second opinion" hidden></section>
 </main>
 
 <details class="drawer">

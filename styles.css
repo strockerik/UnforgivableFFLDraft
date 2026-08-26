@@ -78,6 +78,9 @@ body {
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
 .sidecol { display: grid; gap: 1rem; }
+/* Stacks the board and the second opinion in one column, so the panel opens
+   immediately below the player list instead of below the whole sidebar. */
+.maincol { display: grid; gap: 1rem; align-content: start; min-width: 0; }
 .panel {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 0.9rem;
@@ -453,12 +456,6 @@ body {
   border: 1px solid var(--line); margin-top: 0.4rem; width: 100%;
 }
 .btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
-/* Sits under the board as its own grid child (index.html), not in the sidebar.
-   A long result used to make the sidebar scroll for a screen and a half while
-   the space beneath the player list sat empty. */
-#second-opinion { grid-column: 1; }
-@media (max-width: 900px) { #second-opinion { grid-column: auto; } }
-
 .second-opinion {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; border-left: 3px solid var(--accent);
