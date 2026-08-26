@@ -454,10 +454,41 @@ body {
 }
 .btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
 .second-opinion {
-  margin-top: 0.8rem; padding: 0.7rem 0.8rem;
+  margin-top: 0.8rem;
   background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 8px; border-left: 3px solid var(--accent);
 }
-.second-opinion h3 { margin: 0 0 0.2rem; }
+/* The whole header is the toggle, so the hit target is the full width rather
+   than a 12px triangle. */
+.opinion-summary {
+  display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.55rem 0.8rem; cursor: pointer; list-style: none;
+  border-radius: 6px;
+}
+.opinion-summary::-webkit-details-marker { display: none; }
+.opinion-summary:hover { background: var(--panel); }
+.opinion-summary::before {
+  content: '\25B8'; color: var(--muted); font-size: 0.8rem;
+  transition: transform 0.12s ease;
+}
+.second-opinion[open] > .opinion-summary::before { transform: rotate(90deg); }
+.opinion-title { font-weight: 700; font-size: 0.9rem; }
 .second-opinion .small { font-size: 0.75rem; }
-.opinion-text { margin: 0.5rem 0 0; font-size: 0.9rem; line-height: 1.55; }
+
+.opinion-body { padding: 0 0.8rem 0.7rem 1.55rem; }
+.opinion-text { margin: 0 0 0.55rem; font-size: 0.9rem; line-height: 1.6; }
+.opinion-head {
+  margin: 0.75rem 0 0.35rem; font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted);
+}
+/* One finding per line, hanging indent so a wrapped line stays visually
+   attached to its bullet — this gets read under a draft clock. */
+.opinion-list { margin: 0 0 0.55rem; padding: 0; list-style: none; }
+.opinion-list li {
+  position: relative; padding-left: 0.9rem;
+  margin-bottom: 0.4rem; font-size: 0.9rem; line-height: 1.55;
+}
+.opinion-list li::before {
+  content: '\2022'; position: absolute; left: 0; color: var(--accent); font-weight: 700;
+}
+.opinion-body strong { color: var(--text); font-weight: 700; }

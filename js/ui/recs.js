@@ -13,7 +13,51 @@ let busy = false;
 let result = null;     // { rec, source, note, usage, model }
 let inflight = null;
 let opinion = null;      // { text, searches, paused, model } from the last search
+let opinionPickNo = null; // the pick it was researched FOR
+let opinionOpen = true;
 let searching = false;
+
+/**
+ * Render the model's prose without a markdown library.
+ *
+ * The second opinion comes back as free text with the shape the model chose --
+ * usually a short lead paragraph and a bullet per player. Dumping that into
+ * one <p> per blank line produced a wall that is hard to scan on a draft
+ * clock, which is the opposite of what a second opinion is for.
+ *
+ * Deliberately handles only what the model actually emits: bullets, bold
+ * runs, and a bare "Name — finding" line. Anything unrecognized falls through
+ * as a paragraph rather than being mangled, so an unexpected format degrades
+ * to plain text instead of disappearing.
+ */
+function inline(text) {
+  // **bold** only; everything else stays literal so stray markdown characters
+  // never eat content.
+  return String(text).split(/\*\*(.+?)\*\*/g).map((part, i) =>
+    (i % 2 ? el('strong', {}, part) : part));
+}
+
+function prose(text) {
+  const out = [];
+  let list = null;
+  const flush = () => { if (list) { out.push(list); list = null; } };
+  for (const raw of String(text).split(/\n/)) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    const bullet = line.match(/^[-*\u2022]\s+(.*)$/);
+    if (bullet) {
+      if (!list) list = el('ul', { class: 'opinion-list' });
+      list.append(el('li', {}, ...inline(bullet[1])));
+      continue;
+    }
+    flush();
+    const head = line.match(/^#{1,6}\s+(.*)$/);
+    if (head) out.push(el('h4', { class: 'opinion-head' }, ...inline(head[1])));
+    else out.push(el('p', { class: 'opinion-text' }, ...inline(line)));
+  }
+  flush();
+  return out;
+}
 
 /**
  * Web-search cross-check, on its own button.
@@ -31,7 +75,9 @@ async function askSecondOpinion(evaluation) {
     tags: p.tags,
   }));
   if (!top.length) return;
-  searching = true; opinion = null; render();
+  searching = true; opinion = null; opinionOpen = true;
+  opinionPickNo = evaluation.position.pickNo;
+  render();
   try {
     opinion = await secondOpinion({
       authMode: state.settings.authMode,
@@ -59,17 +105,27 @@ function opinionPanel() {
     return el('div', { class: 'second-opinion' },
       el('p', { class: 'warn-inline' }, `Second opinion failed: ${opinion.error}`));
   }
-  return el('div', { class: 'second-opinion' },
-    el('h3', {}, 'Second opinion'),
-    el('p', { class: 'muted small' },
-      `${opinion.searches} web search${opinion.searches === 1 ? '' : 'es'} · ${opinion.model}`
-      + ' · informational only — the engine ranking is unchanged'),
-    ...String(opinion.text).split(/\n{2,}/).filter(Boolean)
-      .map((para) => el('p', { class: 'opinion-text' }, para)),
-    opinion.paused
-      ? el('p', { class: 'warn-inline' },
-          'The search stopped early (pause_turn), so this may be partial — press again for more.')
-      : null);
+  // Collapsible, and it remembers its own state across re-renders — the panel
+  // re-renders on every board change, and a <details> that silently reopened
+  // each time would be worse than not collapsing at all.
+  return el('details', {
+    class: 'second-opinion',
+    open: opinionOpen,
+    ontoggle: (e) => { opinionOpen = e.target.open; },
+  },
+    el('summary', { class: 'opinion-summary' },
+      el('span', { class: 'opinion-title' }, 'Second opinion'),
+      el('span', { class: 'muted small' },
+        `${opinion.searches} search${opinion.searches === 1 ? '' : 'es'} · `
+        + 'informational only'),
+    ),
+    el('div', { class: 'opinion-body' },
+      ...prose(opinion.text),
+      opinion.paused
+        ? el('p', { class: 'warn-inline' },
+            'The search stopped early, so this may be partial — press again for more.')
+        : null),
+  );
 }
 
 function badge(source) {
@@ -156,6 +212,13 @@ function render() {
 
   const evaluation = evaluate(state, available);
   const pos = evaluation.position;
+
+  // A second opinion is about ONE pick: it names players and quotes news for
+  // the board as it stood. Once a pick is made the board has moved and that
+  // advice is stale, so it is dropped rather than left on screen looking
+  // current. Keyed on pick number, so it clears no matter where the pick came
+  // from -- this panel, the board, the mock runner, or an undo.
+  if (opinion && opinionPickNo !== pos.pickNo) { opinion = null; opinionPickNo = null; }
 
   if (pos.complete) {
     mount(root, el('h2', {}, 'Recommendation'),
