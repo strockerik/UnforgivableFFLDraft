@@ -453,10 +453,15 @@ body {
   border: 1px solid var(--line); margin-top: 0.4rem; width: 100%;
 }
 .btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
+/* Sits under the board as its own grid child (index.html), not in the sidebar.
+   A long result used to make the sidebar scroll for a screen and a half while
+   the space beneath the player list sat empty. */
+#second-opinion { grid-column: 1; }
+@media (max-width: 900px) { #second-opinion { grid-column: auto; } }
+
 .second-opinion {
-  margin-top: 0.8rem;
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 8px; border-left: 3px solid var(--accent);
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; border-left: 3px solid var(--accent);
 }
 /* The whole header is the toggle, so the hit target is the full width rather
    than a 12px triangle. */
@@ -475,7 +480,10 @@ body {
 .opinion-title { font-weight: 700; font-size: 0.9rem; }
 .second-opinion .small { font-size: 0.75rem; }
 
-.opinion-body { padding: 0 0.8rem 0.7rem 1.55rem; }
+/* Cap the measure. The panel is now full board width, and a 1200px line of
+   prose is harder to read than a narrow one, not easier. */
+.opinion-body { padding: 0 0.9rem 0.85rem 1.7rem; max-width: 78ch; }
+.opinion-rule { border: 0; border-top: 1px solid var(--line); margin: 0.85rem 0; }
 .opinion-text { margin: 0 0 0.55rem; font-size: 0.9rem; line-height: 1.6; }
 .opinion-head {
   margin: 0.75rem 0 0.35rem; font-size: 0.75rem; text-transform: uppercase;

@@ -1,7 +1,7 @@
 // Recommendation panel. Always shows the deterministic pick immediately;
 // Claude's answer replaces it only after passing schema + allowlist checks.
 
-import { el, mount } from './dom.js';
+import { $, el, mount } from './dom.js';
 import { state, availablePlayers, getApiKey, getPassphrase, draftPlayer } from '../state.js';
 import { evaluate, deterministicPick, buildEvidence } from '../engine.js';
 import { recommend, secondOpinion, validateRecommendation, estimateCost,
@@ -9,6 +9,7 @@ import { recommend, secondOpinion, validateRecommendation, estimateCost,
 import { confirmDraft, draftTarget } from './draft-prompt.js';
 
 let root = null;
+let opinionRoot = null;
 let busy = false;
 let result = null;     // { rec, source, note, usage, model }
 let inflight = null;
@@ -44,6 +45,7 @@ function prose(text) {
   for (const raw of String(text).split(/\n/)) {
     const line = raw.trim();
     if (!line) { flush(); continue; }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) { flush(); out.push(el('hr', { class: 'opinion-rule' })); continue; }
     const bullet = line.match(/^[-*\u2022]\s+(.*)$/);
     if (bullet) {
       if (!list) list = el('ul', { class: 'opinion-list' });
@@ -93,6 +95,15 @@ async function askSecondOpinion(evaluation) {
   } finally {
     searching = false; render();
   }
+}
+
+/** Paint the second opinion into its own section, or hide that section. */
+function renderOpinion() {
+  if (!opinionRoot) return;
+  const panel = opinionPanel();
+  if (!panel) { opinionRoot.hidden = true; mount(opinionRoot); return; }
+  opinionRoot.hidden = false;
+  mount(opinionRoot, panel);
 }
 
 function opinionPanel() {
@@ -231,6 +242,8 @@ function render() {
 
   const cost = result?.usage ? estimateCost(result.usage, result.model) : null;
 
+  renderOpinion();
+
   mount(root,
     el('div', { class: 'rec-top' },
       el('h2', {}, 'Recommendation'),
@@ -263,7 +276,6 @@ function render() {
 
     result?.note ? el('p', { class: 'warn-inline' }, result.note) : null,
     overrideNote(result?.rec, source, evaluation),
-    opinionPanel(),
 
     shown ? pickCard(shown.primary_pick, evaluation, true) : null,
     shown?.alternatives?.length
@@ -422,6 +434,8 @@ async function askClaude(evaluation, available) {
 
 export function initRecs(container) {
   root = container;
+  // Lives outside this panel, under the board — see index.html.
+  opinionRoot = $('#second-opinion');
   render();
   return () => { result = null; render(); };
 }
