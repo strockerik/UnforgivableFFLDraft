@@ -78,9 +78,9 @@ body {
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
 .sidecol { display: grid; gap: 1rem; }
-/* Stacks the board and the second opinion in one column, so the panel opens
-   immediately below the player list instead of below the whole sidebar. */
-.maincol { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+/* Full-bleed across both columns: prose reads badly in a narrow gutter, and
+   confining it to one column left the other half of the row empty. */
+#second-opinion { grid-column: 1 / -1; min-width: 0; }
 .panel {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 0.9rem;

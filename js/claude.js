@@ -434,7 +434,9 @@ export async function secondOpinion({
 
   const body = {
     model,
-    max_tokens: 4000,
+    // Bounded low on purpose: the answer is two sentences. Search results flow
+    // through the tool and do not count against this.
+    max_tokens: 1500,
     // Version resolved per model -- see webSearchToolFor. Sending the wrong
     // one is a hard 400, not a quieter answer.
     tools: [{ type: webSearchToolFor(model), name: 'web_search', max_uses: 6 }],
@@ -442,17 +444,20 @@ export async function secondOpinion({
 
 The user's app already values players from an equal-weight blend of four projection sources (CBS, Draft Sharks, ESPN, FantasyPros), all converted to his league's scoring: 10 teams, half-PPR, 6-point passing touchdowns, -3 per interception, starting QB1/RB2/WR3/TE1/FLEX1/DST1/K1.
 
-Your job is ONLY to find what those four sources might be missing. Search for recent rankings, news, beat reporting and analyst opinion about the specific players listed, and report:
+Your job is ONLY to find what those four sources might be missing: someone the wider market rates materially differently than the blend does, or breaking news the projections cannot have priced yet — injuries, depth-chart changes, holdouts, suspensions, scheme changes.
 
-- Anyone the wider market rates materially DIFFERENTLY than the blend does, in either direction, and why.
-- Breaking news the projections cannot have priced yet: injuries, depth-chart changes, holdouts, suspensions, coaching or scheme changes.
-- Nothing at all, if that is the honest answer. "No source disagrees materially with the blend" is a useful and acceptable finding. Do not manufacture disagreement to seem useful.
+SEARCH AS MUCH AS YOU NEED. ANSWER IN AT MOST TWO SENTENCES.
 
-Be brief and concrete. Cite what you found and when it was reported — recency is the whole point, so date every claim you can. Do not recommend a pick; the user's engine does that. Do not repeat back the values he already gave you.`,
+This is read by someone on the clock in a live draft, with seconds to spare. A long answer is not a thorough answer here — it is an unread one. Everything you searched should be compressed into at most two sentences of plain prose. No headings, no bullet lists, no per-player sections, no preamble about what you are about to do.
+
+Name only what would actually change a pick. If two players are unremarkable and one has a fresh injury, the answer is one sentence about that injury. If nothing material turned up, say exactly that in one sentence — "Nothing recent that your blend has not already priced" is a genuinely useful answer, and far better than padding. Never manufacture disagreement to seem useful.
+
+Date anything time-sensitive, in-line and briefly ("did not practice Thursday"). Do not recommend a pick; the engine does that. Do not repeat back values the user already gave you.`,
     messages: [{
       role: 'user',
       content: `Round ${round}. These are the top candidates on my board right now:\n\n${list}\n\n`
-        + 'Search for anything recent that would change how I read these, and tell me where the wider market disagrees with my numbers.',
+        + 'Search for anything recent that would change how I read these. '
+        + 'Reply in at most two sentences — I am on the clock.',
     }],
   };
 
@@ -486,8 +491,13 @@ Be brief and concrete. Cite what you found and when it was reported — recency 
   // A long search can stop with pause_turn before finishing. Report what came
   // back and say it is partial rather than presenting a truncated answer as
   // the whole story.
+  // Joined with NOTHING, not a newline. The API splits text into a new block
+  // at every citation boundary, mid-sentence -- so joining on "\n" inserted a
+  // paragraph break inside each sentence and the panel rendered as a column of
+  // fragments: "he took Chase's throne as WR1" / "and" / "he finished WR1 in
+  // two of three seasons". The blocks are one continuous string; treat them so.
   const text = (data.content || [])
-    .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+    .filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
   const searches = (data.content || [])
     .filter((b) => b.type === 'server_tool_use' && b.name === 'web_search').length;
   return {
