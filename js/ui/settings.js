@@ -401,11 +401,27 @@ function render() {
         el('summary', {}, 'Offline fallbacks'),
         el('div', { class: 'row' },
           el('button', { class: 'btn', onclick: loadJson }, 'Load data/players.json'),
+          // The fetch button only works from an origin that HAS the file, which
+          // means running locally: players.json is licensed FantasyPros data and
+          // is deliberately not published to the site. This picker reads the same
+          // file straight off disk, so the deployed page works too without the
+          // data ever leaving the machine. The error text on loadJson has always
+          // pointed at "the upload button" -- this is it.
+          field('or upload it', el('input', {
+            type: 'file', accept: '.json,application/json',
+            onchange: async (e) => {
+              const f = e.target.files[0];
+              if (!f) return;
+              ingestJson(await readFileText(f), f.name);
+              e.target.value = '';
+            },
+          })),
           el('button', { class: 'btn', onclick: loadSample }, 'Load synthetic sample data'),
         ),
         el('p', { class: 'field-hint' },
-          'Only needed if the Worker is unreachable. players.json comes from ',
-          'tools/fetch_fantasypros.py; the sample data is invented and marked as such.')),
+          'players.json comes from tools/fetch_fantasypros.py. The Load button needs ',
+          'a local server; the upload works anywhere, including the published site, ',
+          'and keeps the licensed data on this machine. Sample data is invented and marked as such.')),
     ),
 
     el('section', { class: 'setup-group' },
