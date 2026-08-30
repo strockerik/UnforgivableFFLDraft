@@ -1655,6 +1655,27 @@ test('each model gets a web-search tool it can actually run', () => {
     'unknown models fall back to the tool that works everywhere: ');
 });
 
+// The disagreement note named FantasyPros and ESPN regardless of which
+// sources were actually furthest apart, so it quoted two near-identical
+// numbers beside a gap measured between two others.
+test('the disagreement note names the sources that are actually the spread', () => {
+  const S = { ...DEFAULT_SETTINGS };
+  const p = { id: 'w', name: 'Split', pos: 'WR', posRank: 1, ecr: 1,
+    projStats: { rec_yds: 3000, rec_rec: 0 },     // FantasyPros 300 — the HIGH
+    espnStats: { rec_yds: 2980, rec_rec: 0 },     // ESPN 298
+    cbsStats: { rec_yds: 2000, rec_rec: 0 } };    // CBS 200 — the LOW
+  const pool = [p];
+  computeValues(pool, S);
+  eq(pool[0].sourceGap, 100, 'gap spans the true extremes: ');
+  const st = { settings: S, pool, picks: [], valueMode: 'projections' };
+  const note = buildEvidence(st, pool, evaluate(st, pool))
+    .board.topAvailableByPosition.WR[0].projectionDisagreement;
+  ok(note.includes('CBS 200 (lowest)'), `must name the low source: ${note}`);
+  ok(note.includes('FantasyPros 300 (highest)'), `must name the high source: ${note}`);
+  ok(note.includes('100 points apart across 3 sources'), `must state the span: ${note}`);
+  ok(!note.includes('ESPN'), `must not name a middle source as an extreme: ${note}`);
+});
+
 test('the upside bonus is bounded and never reaches a kicker', () => {
   const settings = { ...DEFAULT_SETTINGS, sleeperQuota: 1 };
   const roster = [

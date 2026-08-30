@@ -687,9 +687,20 @@ export function buildEvidence(state, available, evaluation, perPos = 12) {
       if (p.band.injuryRisk) b.injuryRiskPct = p.band.injuryRisk;
     }
     if (p.sourceGap != null && p.sourceGap >= 15) {
+      // Name the two sources that actually ARE the spread. This used to print
+      // FantasyPros and ESPN regardless, which was right when there were only
+      // two of them and wrong the moment CBS and Draft Sharks joined: Brock
+      // Purdy read "FantasyPros 334 vs ESPN 333 -- 26 points apart", quoting a
+      // 1-point difference next to a 26-point gap measured somewhere else.
+      const seen = [
+        ['FantasyPros', p.projPointsFp], ['ESPN', p.projPointsEspn],
+        ['CBS', p.projPointsCbs], ['Draft Sharks', p.projPointsDs],
+      ].filter(([, v]) => v != null).sort((x, y) => x[1] - y[1]);
+      const low = seen[0];
+      const high = seen[seen.length - 1];
       b.projectionDisagreement =
-        `FantasyPros ${Math.round(p.projPointsFp)} vs ESPN ${Math.round(p.projPointsEspn)}`
-        + ` — ${p.sourceGap} points apart`;
+        `${low[0]} ${Math.round(low[1])} (lowest) vs ${high[0]} ${Math.round(high[1])} (highest)`
+        + ` — ${p.sourceGap} points apart across ${seen.length} sources`;
     }
     // When projections are loaded, send both valuations plus their gap. The
     // gap is where a statistical forecast and the expert market disagree, and
