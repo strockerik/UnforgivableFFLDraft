@@ -10,7 +10,7 @@ import { readFileText } from '../csv.js';
 import { parseRankings, parseAdp, mergeAdp, finalizePool } from '../players.js';
 import { parseStrategyDoc, applyTags } from '../strategy.js';
 import { fetchPool } from '../fantasypros.js';
-import { computeValues, VALUE_MODE_LABEL, replacementLevels } from '../vorp.js';
+import { computeValues, valueModeLabel, replacementLevels } from '../vorp.js';
 import { myPicks } from '../snake.js';
 import { advanceMock, reseedMock, startMock, stopMock, isMockRunning } from './mock-runner.js';
 import { COACHES, coachByName, habitSummary } from '../coaches.js';
@@ -87,9 +87,9 @@ async function ingest(rankingsText, adpText, meta) {
     const { pool, warnings: fw } = finalizePool(players);
     warnings.push(...fw);
 
-    const { mode } = computeValues(pool, state.settings);
+    const { mode, blended } = computeValues(pool, state.settings);
     setPool(pool, mode, warnings, meta);
-    setStatus(`Loaded ${pool.length} players. ${VALUE_MODE_LABEL[mode]}.`, 'ok');
+    setStatus(`Loaded ${pool.length} players. ${valueModeLabel(mode, blended)}.`, 'ok');
   } catch (err) {
     setStatus(`Could not load: ${err.message}`, 'error');
   }
@@ -115,7 +115,7 @@ function ingestJson(text, sourceLabel) {
     if (usable.length !== players.length) {
       notes.push(`${players.length - usable.length} record(s) lacked a name or position and were dropped.`);
     }
-    const { mode } = computeValues(pool, state.settings);
+    const { mode, blended } = computeValues(pool, state.settings);
     const label = data.season
       ? `FantasyPros ${data.season} ${data.scoring || ''} — fetched ${(data.fetchedAt || '').slice(0, 16).replace('T', ' ')}`
       : sourceLabel;
@@ -141,7 +141,7 @@ function ingestJson(text, sourceLabel) {
       loadStrategyFile();
       return;
     }
-    setStatus(`Loaded ${pool.length} players from ${label}. ${VALUE_MODE_LABEL[mode]}.`, 'ok');
+    setStatus(`Loaded ${pool.length} players from ${label}. ${valueModeLabel(mode, blended)}.`, 'ok');
   } catch (err) {
     setStatus(`Could not read ${sourceLabel}: ${err.message}`, 'error');
   }
@@ -239,7 +239,7 @@ export async function refreshFromFantasyPros(manual = false) {
     const data = await fetchPool({ proxyUrl, passphrase, season: '2026', scoring: scoringCode });
 
     const { pool, warnings } = finalizePool(data.players);
-    const { mode } = computeValues(pool, state.settings);
+    const { mode, blended } = computeValues(pool, state.settings);
 
     let preserve = false;
     if (state.picks.length) {
@@ -258,7 +258,7 @@ export async function refreshFromFantasyPros(manual = false) {
     if (state.strategyText || state.strategyMeta) loadStrategyFile();
     setStatus(`Refreshed: ${pool.length} players`
       + (moved.lost.length ? `, ${moved.lost.length} recorded pick(s) unmatched` : '')
-      + `. ${VALUE_MODE_LABEL[mode]}.`, 'ok');
+      + `. ${valueModeLabel(mode, blended)}.`, 'ok');
   } catch (err) {
     setStatus(`Could not refresh (${err.message}). `
       + (state.pool.length
@@ -391,6 +391,29 @@ function render() {
               ? ` · tier ${state.poolMeta.coverage.tier} · adp ${state.poolMeta.coverage.adp} · proj ${state.poolMeta.coverage.proj}`
               : '')
         : el('p', { class: 'field-hint' }, 'No player data loaded yet.'),
+
+      // Standing readiness line, not a toast. "Is it loaded?" was previously
+      // answerable only from a timestamp and a status message that scrolled
+      // away -- and the message named the OLD two-mode label, so the blend the
+      // board actually ranks on was never stated anywhere. CLAUDE.md requires
+      // the active value mode be labelled; this is where it earns that.
+      (() => {
+        if (!state.pool.length) return null;
+        const blended = state.pool.filter((p) => (p.sourceCount || 0) >= 2).length;
+        const withInjury = state.pool.filter((p) => p.injury).length;
+        const tagged = state.pool.filter((p) => p.tags?.length).length;
+        const ready = state.valueMode === 'projections' && blended > 0;
+        return el('p', { class: ready ? 'status status-ok' : 'status status-error' },
+          el('strong', {}, ready ? '✓ Ready. ' : '⚠ Not fully loaded. '),
+          ready
+            ? `${valueModeLabel(state.valueMode, blended)} `
+              + `${withInjury} injury flag(s), ${tagged} strategy tag(s).`
+            : state.valueMode === 'projections'
+              ? 'Only one projection source merged — run fetch_espn / fetch_cbs / '
+                + 'fetch_draftsharks, then load again.'
+              : 'Rank surrogate only — this pool has no projected points. '
+                + 'Re-run fetch_fantasypros.py with --projections.');
+      })(),
       status ? el('p', { class: `status status-${status.kind}` }, status.msg) : null,
       state.warnings.length
         ? el('details', { class: 'warnings' },
@@ -751,7 +774,7 @@ function render() {
 // Recompute in place — never through setPool, which clears the draft.
 function recompute() {
   if (!state.pool.length) return;
-  const { mode } = computeValues(state.pool, state.settings);
+  const { mode, blended } = computeValues(state.pool, state.settings);
   refreshPool(mode, state.warnings);
 }
 
