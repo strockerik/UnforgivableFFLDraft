@@ -450,7 +450,7 @@ body {
    it never makes it, and nothing it returns moves a value on the board. */
 .btn.subtle {
   background: transparent; color: var(--accent);
-  border: 1px solid var(--line); margin-top: 0.4rem; width: 100%;
+  border: 1px solid var(--line); margin: 0.4rem 0 0.7rem; width: 100%;
 }
 .btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
 /* Lives inside the recommendation panel now, so it drops the outer card and

@@ -450,13 +450,16 @@ SEARCH AS MUCH AS YOU NEED. ANSWER IN AT MOST TWO SENTENCES.
 
 This is read by someone on the clock in a live draft, with seconds to spare. A long answer is not a thorough answer here — it is an unread one. Everything you searched should be compressed into at most two sentences of plain prose. No headings, no bullet lists, no per-player sections, no preamble about what you are about to do.
 
-Name only what would actually change a pick. If two players are unremarkable and one has a fresh injury, the answer is one sentence about that injury. If nothing material turned up, say exactly that in one sentence — "Nothing recent that your blend has not already priced" is a genuinely useful answer, and far better than padding. Never manufacture disagreement to seem useful.
+ACCOUNT FOR EVERY PLAYER LISTED. Silence about a player reads as "not checked", and the user cannot tell that apart from "checked, nothing there" — so each name must appear. Group the clean ones to stay inside the limit: "Taylor and Smith-Njigba have nothing new flagged" covers two players in six words. Spend the words on whoever actually has something.
+
+If nothing material turned up on anyone, say exactly that in one sentence — "Nothing recent that your blend has not already priced" is a genuinely useful answer, and far better than padding. Never manufacture disagreement to seem useful.
 
 Date anything time-sensitive, in-line and briefly ("did not practice Thursday"). Do not recommend a pick; the engine does that. Do not repeat back values the user already gave you.`,
     messages: [{
       role: 'user',
       content: `Round ${round}. These are the top candidates on my board right now:\n\n${list}\n\n`
         + 'Search for anything recent that would change how I read these. '
+        + 'Account for every player above — group the ones with nothing new. '
         + 'Reply in at most two sentences — I am on the clock.',
     }],
   };

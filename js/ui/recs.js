@@ -70,7 +70,26 @@ function prose(text) {
  */
 async function askSecondOpinion(evaluation) {
   if (searching) return;
-  const top = (evaluation.ranked || []).slice(0, 5).map(({ player: p }) => ({
+
+  // Research the players ACTUALLY ON SCREEN -- the recommended pick plus its
+  // alternatives -- not the engine's own top five. Those two sets usually
+  // overlap but are not the same, and a second opinion on a player Erik was
+  // never shown is a second opinion on the wrong question.
+  //
+  // Falls back to the engine's ranking before Claude has answered, or when the
+  // call failed, so the button works on a cold panel too.
+  const shown = result?.rec;
+  const byName = new Map((evaluation.ranked || []).map((r) => [r.player.name, r.player]));
+  const recommended = shown
+    ? [shown.primary_pick, ...(shown.alternatives || [])]
+        .map((a) => byName.get(a.name)).filter(Boolean)
+    : [];
+  const seen = new Set();
+  const players = (recommended.length ? recommended
+    : (evaluation.ranked || []).slice(0, 5).map((r) => r.player))
+    .filter((p) => p && !seen.has(p.name) && seen.add(p.name));
+
+  const top = players.map((p) => ({
     name: p.name, pos: p.pos, team: p.team, value: Math.round(p.value ?? 0),
     injury: p.injury ? [p.injury.status, p.injury.detail].filter(Boolean).join(' — ') : null,
     tags: p.tags,
