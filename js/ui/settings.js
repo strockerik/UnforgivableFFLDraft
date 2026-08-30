@@ -232,6 +232,26 @@ export async function refreshFromFantasyPros(manual = false) {
     return;
   }
 
+  // Never let the timer silently downgrade a blended pool.
+  //
+  // The Worker relays FantasyPros and nothing else. The other three projection
+  // sources and every injury flag are merged into data/players.json by the
+  // Python tools and exist nowhere the browser can reach -- so an automatic
+  // refresh of a four-source pool REPLACES it with a one-source one, drops the
+  // injury flags, and says only "refreshed". That fired at 22:19 on draft night
+  // and cost Erik his whole blend an hour before picking.
+  //
+  // A manual press is intent and still goes through. The timer is not.
+  const blended = state.pool.filter((p) => (p.sourceCount || 0) >= 2).length;
+  if (!manual && blended > 0) {
+    setStatus(
+      `Auto-refresh skipped: the loaded pool blends ${blended} players across `
+      + 'multiple sources, and the FantasyPros relay would replace it with a '
+      + 'single-source pool and no injury flags. Press "Refresh from FantasyPros '
+      + 'now" if you actually want that.', 'ok');
+    return;
+  }
+
   refreshing = true;
   setStatus('Fetching from FantasyPros…');
   try {
@@ -380,9 +400,10 @@ function render() {
         }, refreshing ? 'Refreshing…' : 'Refresh from FantasyPros now'),
         field('Auto-refresh after', el('select', {
           onchange: (e) => setSettings({ autoRefreshHours: Number(e.target.value) }),
-        }, [0, 1, 6, 24].map((h) =>
+        }, [-1, 0, 1, 6, 24].map((h) =>
           el('option', { value: h, selected: s.autoRefreshHours === h },
-            h === 0 ? 'every open' : `${h}h`))), 'How stale the cache may get'),
+            h === -1 ? 'never' : h === 0 ? 'every open' : `${h}h`))),
+        'How stale the cache may get. "never" on draft day.'),
       ),
       state.poolMeta.label
         ? el('p', { class: 'computed' },
@@ -789,7 +810,10 @@ export async function autoLoad() {
   const s = state.settings;
   const fetchedAt = state.poolMeta && state.poolMeta.fetchedAt;
   const ageHours = fetchedAt ? (Date.now() - Date.parse(fetchedAt)) / 3.6e6 : Infinity;
-  const stale = !state.pool.length || ageHours >= (s.autoRefreshHours ?? 6);
+  // -1 means never: an explicit off switch, so a timer cannot replace a pool
+  // that was assembled by hand. An empty pool still loads regardless.
+  const never = s.autoRefreshHours === -1;
+  const stale = !state.pool.length || (!never && ageHours >= (s.autoRefreshHours ?? 6));
 
   // The API is the source of truth; the local file is a fallback for when the
   // Worker is unreachable.
