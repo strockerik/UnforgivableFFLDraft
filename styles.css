@@ -78,9 +78,6 @@ body {
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
 
 .sidecol { display: grid; gap: 1rem; }
-/* Full-bleed across both columns: prose reads badly in a narrow gutter, and
-   confining it to one column left the other half of the row empty. */
-#second-opinion { grid-column: 1 / -1; min-width: 0; }
 .panel {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 0.9rem;
@@ -456,16 +453,18 @@ body {
   border: 1px solid var(--line); margin-top: 0.4rem; width: 100%;
 }
 .btn.subtle:hover:not(:disabled) { background: var(--panel-2); }
+/* Lives inside the recommendation panel now, so it drops the outer card and
+   keeps only the accent rule that marks it as a different kind of claim from
+   the engine's own numbers. */
 .second-opinion {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; border-left: 3px solid var(--accent);
+  background: var(--panel-2); border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0; margin: 0.5rem 0 0.2rem;
 }
 /* The whole header is the toggle, so the hit target is the full width rather
    than a 12px triangle. */
 .opinion-summary {
   display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
-  padding: 0.55rem 0.8rem; cursor: pointer; list-style: none;
-  border-radius: 6px;
+  padding: 0.4rem 0.6rem; cursor: pointer; list-style: none;
 }
 .opinion-summary::-webkit-details-marker { display: none; }
 .opinion-summary:hover { background: var(--panel); }
@@ -477,9 +476,8 @@ body {
 .opinion-title { font-weight: 700; font-size: 0.9rem; }
 .second-opinion .small { font-size: 0.75rem; }
 
-/* Cap the measure. The panel is now full board width, and a 1200px line of
-   prose is harder to read than a narrow one, not easier. */
-.opinion-body { padding: 0 0.9rem 0.85rem 1.7rem; max-width: 78ch; }
+.opinion-body { padding: 0 0.7rem 0.6rem 1.5rem; }
+.opinion-body p { margin: 0.2rem 0; }
 .opinion-rule { border: 0; border-top: 1px solid var(--line); margin: 0.85rem 0; }
 .opinion-text { margin: 0 0 0.55rem; font-size: 0.9rem; line-height: 1.6; }
 .opinion-head {

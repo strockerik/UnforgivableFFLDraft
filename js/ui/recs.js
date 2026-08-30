@@ -9,7 +9,6 @@ import { recommend, secondOpinion, validateRecommendation, estimateCost,
 import { confirmDraft, draftTarget } from './draft-prompt.js';
 
 let root = null;
-let opinionRoot = null;
 let busy = false;
 let result = null;     // { rec, source, note, usage, model }
 let inflight = null;
@@ -95,15 +94,6 @@ async function askSecondOpinion(evaluation) {
   } finally {
     searching = false; render();
   }
-}
-
-/** Paint the second opinion into its own section, or hide that section. */
-function renderOpinion() {
-  if (!opinionRoot) return;
-  const panel = opinionPanel();
-  if (!panel) { opinionRoot.hidden = true; mount(opinionRoot); return; }
-  opinionRoot.hidden = false;
-  mount(opinionRoot, panel);
 }
 
 function opinionPanel() {
@@ -242,8 +232,6 @@ function render() {
 
   const cost = result?.usage ? estimateCost(result.usage, result.model) : null;
 
-  renderOpinion();
-
   mount(root,
     el('div', { class: 'rec-top' },
       el('h2', {}, 'Recommendation'),
@@ -273,6 +261,12 @@ function render() {
           onclick: () => askSecondOpinion(evaluation),
         }, searching ? 'Searching…' : 'Second opinion (web search)')
       : null,
+
+    // Directly under the button that produced it, and ABOVE the pick cards.
+    // It is two sentences now, so it costs almost no vertical space -- and its
+    // whole job is carrying injury and news that should be read BEFORE the
+    // Draft button, not after it.
+    opinionPanel(),
 
     result?.note ? el('p', { class: 'warn-inline' }, result.note) : null,
     overrideNote(result?.rec, source, evaluation),
@@ -435,7 +429,6 @@ async function askClaude(evaluation, available) {
 export function initRecs(container) {
   root = container;
   // Lives outside this panel, under the board — see index.html.
-  opinionRoot = $('#second-opinion');
   render();
   return () => { result = null; render(); };
 }
